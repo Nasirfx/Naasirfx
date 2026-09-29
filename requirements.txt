@@ -1,4 +1,7 @@
-python-telegram-bot==21.10
+python-telegram-bot
 pandas
+websockets==11.0
+tzlocal
+backoff
 numpy
 pocketoptionapi-async
