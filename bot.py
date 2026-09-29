@@ -124,14 +124,14 @@ TIMEFRAMES = {
 
 
 EXPIRIES = {
-    "1️⃣ 1 Minute": 60,
-    "2️⃣ 2 Minutes": 120,
-    "3️⃣ 3 Minutes": 180,
-    "5️⃣ 5 Minutes": 300,
-    "10️⃣ 10 Minutes": 600,
-    "15️⃣ 15 Minutes": 900,
-    "30️⃣ 30 Minutes": 1800,
-    "1️⃣ 1 Hour": 3600,
+    "⌛ 1 Minute": 60,
+    "⌛ 2 Minutes": 120,
+    "⌛ 3 Minutes": 180,
+    "⌛ 5 Minutes": 300,
+    "⌛ 10 Minutes": 600,
+    "⌛ 15 Minutes": 900,
+    "⌛ 30 Minutes": 1800,
+    "⌛ 1 Hour": 3600,
 }
 
 
