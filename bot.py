@@ -16,7 +16,7 @@ from telegram.ext import (
 )
 
 from pocketoptionapi_async import AsyncPocketOptionClient
-from pocketoptionapi_async.constants import ASSETS, TIMEFRAMES
+from pocketoptionapi_async.constants import ASSETS
 
 
 # =========================================================
@@ -31,7 +31,6 @@ POCKET_SSID = os.getenv("POCKET_OPTION_SSID")
 DEFAULT_ASSET = "EURUSD_otc"
 DEFAULT_TIMEFRAME = 60
 DEFAULT_EXPIRY = 300
-
 CANDLE_COUNT = 100
 
 
@@ -52,36 +51,22 @@ logger = logging.getLogger("NaasirFx")
 # =========================================================
 
 def load_asset_catalog():
-    """
-    ASSETS-ka package-ka ayuu ka akhriyaa.
-
-    Waxaa laga yaabaa in ASSETS uu yahay dict ama list,
-    sidaas darteed labadaba waan taageereynaa.
-    """
-
     result = []
 
     try:
         if isinstance(ASSETS, dict):
             for key, value in ASSETS.items():
-
                 if isinstance(value, str):
-                    symbol = value
+                    result.append(value)
                 else:
-                    symbol = str(key)
-
-                if symbol:
-                    result.append(symbol)
+                    result.append(str(key))
 
         elif isinstance(ASSETS, (list, tuple, set)):
-
             for item in ASSETS:
-
                 if isinstance(item, str):
                     result.append(item)
 
                 elif isinstance(item, dict):
-
                     symbol = (
                         item.get("symbol")
                         or item.get("asset")
@@ -92,16 +77,10 @@ def load_asset_catalog():
                         result.append(str(symbol))
 
     except Exception as exc:
+        logger.error("Asset catalog error: %s", exc)
 
-        logger.error(
-            "Asset catalog error: %s",
-            exc
-        )
-
-    # Remove duplicates
     result = list(dict.fromkeys(result))
 
-    # Hubi EURUSD_otc inuu jiro
     if DEFAULT_ASSET not in result:
         result.insert(0, DEFAULT_ASSET)
 
@@ -112,26 +91,6 @@ ASSET_CATALOG = load_asset_catalog()
 
 
 # =========================================================
-# TIMEFRAME CATALOG
-# =========================================================
-
-def get_timeframe_value(name, default=None):
-
-    try:
-
-        if isinstance(TIMEFRAMES, dict):
-
-            if name in TIMEFRAMES:
-                return int(TIMEFRAMES[name])
-
-        return default
-
-    except Exception:
-
-        return default
-
-
-# =========================================================
 # USER SETTINGS
 # =========================================================
 
@@ -139,9 +98,7 @@ USER_SETTINGS = {}
 
 
 def get_user_settings(user_id):
-
     if user_id not in USER_SETTINGS:
-
         USER_SETTINGS[user_id] = {
             "asset": DEFAULT_ASSET,
             "timeframe": DEFAULT_TIMEFRAME,
@@ -158,42 +115,24 @@ def get_user_settings(user_id):
 class HealthHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
-
         self.send_response(200)
-
-        self.send_header(
-            "Content-Type",
-            "text/plain"
-        )
-
+        self.send_header("Content-Type", "text/plain")
         self.end_headers()
-
-        self.wfile.write(
-            b"NaasirFx is running"
-        )
+        self.wfile.write(b"NaasirFx is running")
 
     def log_message(self, format, *args):
         return
 
 
 def start_web_server():
-
-    port = int(
-        os.getenv(
-            "PORT",
-            "10000"
-        )
-    )
+    port = int(os.getenv("PORT", "10000"))
 
     server = HTTPServer(
         ("0.0.0.0", port),
-        HealthHandler
+        HealthHandler,
     )
 
-    logger.info(
-        "Health server started on port %s",
-        port
-    )
+    logger.info("Health server started on port %s", port)
 
     server.serve_forever()
 
@@ -205,7 +144,6 @@ def start_web_server():
 async def connect_pocket_option():
 
     if not POCKET_SSID:
-
         raise RuntimeError(
             "POCKET_OPTION_SSID is missing."
         )
@@ -215,10 +153,9 @@ async def connect_pocket_option():
     for attempt in range(1, 4):
 
         try:
-
             logger.info(
                 "Pocket Option connection %s/3",
-                attempt
+                attempt,
             )
 
             client = AsyncPocketOptionClient(
@@ -229,7 +166,6 @@ async def connect_pocket_option():
             result = await client.connect()
 
             if result is False:
-
                 raise RuntimeError(
                     "Pocket Option connect() returned False"
                 )
@@ -247,7 +183,7 @@ async def connect_pocket_option():
             logger.error(
                 "Connection attempt %s failed: %s",
                 attempt,
-                exc
+                exc,
             )
 
             if attempt < 3:
@@ -282,7 +218,6 @@ async def get_market_data(
         )
 
         if not candles:
-
             raise RuntimeError(
                 f"No candle data received for {asset}"
             )
@@ -292,10 +227,8 @@ async def get_market_data(
     finally:
 
         if client is not None:
-
             try:
                 await client.disconnect()
-
             except Exception:
                 pass
 
@@ -348,32 +281,19 @@ def candles_to_dataframe(candles):
 # RSI
 # =========================================================
 
-def calculate_rsi(
-    series,
-    period=14,
-):
+def calculate_rsi(series, period=14):
 
     delta = series.diff()
 
-    gain = delta.clip(
-        lower=0
-    )
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
 
-    loss = -delta.clip(
-        upper=0
-    )
-
-    avg_gain = gain.rolling(
-        period
-    ).mean()
-
-    avg_loss = loss.rolling(
-        period
-    ).mean()
+    avg_gain = gain.rolling(period).mean()
+    avg_loss = loss.rolling(period).mean()
 
     rs = avg_gain / avg_loss.replace(
         0,
-        float("nan")
+        float("nan"),
     )
 
     return 100 - (
@@ -385,14 +305,11 @@ def calculate_rsi(
 # EMA
 # =========================================================
 
-def calculate_ema(
-    series,
-    period,
-):
+def calculate_ema(series, period):
 
     return series.ewm(
         span=period,
-        adjust=False
+        adjust=False,
     ).mean()
 
 
@@ -402,22 +319,12 @@ def calculate_ema(
 
 def calculate_macd(series):
 
-    ema12 = calculate_ema(
-        series,
-        12
-    )
-
-    ema26 = calculate_ema(
-        series,
-        26
-    )
+    ema12 = calculate_ema(series, 12)
+    ema26 = calculate_ema(series, 26)
 
     macd = ema12 - ema26
 
-    signal = calculate_ema(
-        macd,
-        9
-    )
+    signal = calculate_ema(macd, 9)
 
     return macd, signal
 
@@ -428,21 +335,12 @@ def calculate_macd(series):
 
 def calculate_bollinger(series):
 
-    middle = series.rolling(
-        20
-    ).mean()
+    middle = series.rolling(20).mean()
 
-    std = series.rolling(
-        20
-    ).std()
+    std = series.rolling(20).std()
 
-    upper = middle + (
-        2 * std
-    )
-
-    lower = middle - (
-        2 * std
-    )
+    upper = middle + (2 * std)
+    lower = middle - (2 * std)
 
     return upper, middle, lower
 
@@ -463,17 +361,10 @@ def analyze_market(df):
         "candle": "WAIT",
     }
 
-    if df.empty:
-        return empty_result
-
-    if len(df) < 50:
+    if df.empty or len(df) < 50:
         return empty_result
 
     df = df.copy()
-
-    # -----------------------------------------------------
-    # MA10
-    # -----------------------------------------------------
 
     df["MA10"] = (
         df["close"]
@@ -481,54 +372,35 @@ def analyze_market(df):
         .mean()
     )
 
-    # -----------------------------------------------------
-    # MA50
-    # -----------------------------------------------------
-
     df["MA50"] = (
         df["close"]
         .rolling(50)
         .mean()
     )
 
-    # -----------------------------------------------------
-    # RSI
-    # -----------------------------------------------------
-
     df["RSI"] = calculate_rsi(
         df["close"],
-        14
+        14,
     )
-
-    # -----------------------------------------------------
-    # MACD
-    # -----------------------------------------------------
 
     (
         df["MACD"],
-        df["MACD_SIGNAL"]
+        df["MACD_SIGNAL"],
     ) = calculate_macd(
         df["close"]
     )
 
-    # -----------------------------------------------------
-    # BOLLINGER
-    # -----------------------------------------------------
-
     (
         df["BB_UPPER"],
         df["BB_MIDDLE"],
-        df["BB_LOWER"]
+        df["BB_LOWER"],
     ) = calculate_bollinger(
         df["close"]
     )
 
     last = df.iloc[-1]
 
-    # -----------------------------------------------------
     # TREND
-    # -----------------------------------------------------
-
     trend = "WAIT"
 
     if last["MA10"] > last["MA50"]:
@@ -537,10 +409,7 @@ def analyze_market(df):
     elif last["MA10"] < last["MA50"]:
         trend = "PUT"
 
-    # -----------------------------------------------------
     # RSI
-    # -----------------------------------------------------
-
     rsi = last["RSI"]
 
     rsi_signal = "WAIT"
@@ -553,16 +422,12 @@ def analyze_market(df):
         elif 30 <= rsi <= 45:
             rsi_signal = "PUT"
 
-    # -----------------------------------------------------
     # MACD
-    # -----------------------------------------------------
-
     macd_signal = "WAIT"
 
     if (
         pd.notna(last["MACD"])
-        and
-        pd.notna(last["MACD_SIGNAL"])
+        and pd.notna(last["MACD_SIGNAL"])
     ):
 
         if last["MACD"] > last["MACD_SIGNAL"]:
@@ -571,18 +436,13 @@ def analyze_market(df):
         elif last["MACD"] < last["MACD_SIGNAL"]:
             macd_signal = "PUT"
 
-    # -----------------------------------------------------
     # BOLLINGER
-    # -----------------------------------------------------
-
     bollinger_signal = "WAIT"
 
     if (
         pd.notna(last["BB_MIDDLE"])
-        and
-        pd.notna(last["BB_UPPER"])
-        and
-        pd.notna(last["BB_LOWER"])
+        and pd.notna(last["BB_UPPER"])
+        and pd.notna(last["BB_LOWER"])
     ):
 
         if last["close"] > last["BB_MIDDLE"]:
@@ -591,10 +451,7 @@ def analyze_market(df):
         elif last["close"] < last["BB_MIDDLE"]:
             bollinger_signal = "PUT"
 
-    # -----------------------------------------------------
     # CANDLE
-    # -----------------------------------------------------
-
     candle_signal = "WAIT"
 
     if last["close"] > last["open"]:
@@ -602,10 +459,6 @@ def analyze_market(df):
 
     elif last["close"] < last["open"]:
         candle_signal = "PUT"
-
-    # -----------------------------------------------------
-    # SCORE
-    # -----------------------------------------------------
 
     checks = [
         trend,
@@ -630,7 +483,7 @@ def analyze_market(df):
         "signal": signal,
         "score": max(
             call_score,
-            put_score
+            put_score,
         ),
         "trend": trend,
         "rsi": rsi,
@@ -644,10 +497,7 @@ def analyze_market(df):
 # START
 # =========================================================
 
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [
@@ -665,7 +515,7 @@ async def start(
 
     markup = ReplyKeyboardMarkup(
         keyboard,
-        resize_keyboard=True
+        resize_keyboard=True,
     )
 
     await update.message.reply_text(
@@ -676,7 +526,7 @@ async def start(
         "⏱ TIMEFRAME - Candle timeframe\n"
         "⌛ EXPIRY - Signal expiry\n"
         "ℹ️ STATUS - Bot status",
-        reply_markup=markup
+        reply_markup=markup,
     )
 
 
@@ -684,10 +534,7 @@ async def start(
 # STATUS
 # =========================================================
 
-async def status(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     token_status = (
         "✅ OK"
@@ -733,7 +580,6 @@ async def assets_command(
 
         return
 
-    # Search/filter haddii userku command argument bixiyo
     search = ""
 
     if context.args:
@@ -744,15 +590,11 @@ async def assets_command(
     assets = ASSET_CATALOG
 
     if search:
-
         assets = [
             asset
             for asset in assets
             if search in asset.lower()
         ]
-
-    # Telegram message limit awgeed 40-40 ayaan u kala diraynaa
-    chunk_size = 40
 
     if not assets:
 
@@ -764,16 +606,18 @@ async def assets_command(
 
     await update.message.reply_text(
         f"📋 NAASIRFX ASSETS\n\n"
-        f"Waxaa catalog-ga ku jira: {len(ASSET_CATALOG)}\n"
+        f"Catalog: {len(ASSET_CATALOG)}\n"
         f"Waxaa la helay: {len(assets)}\n\n"
-        "Si aad asset u doorato qor:\n"
-        "ASSET EURUSD_otc"
+        "Si aad u doorato qor:\n"
+        "ASSET #TSLA_otc"
     )
+
+    chunk_size = 40
 
     for start_index in range(
         0,
         len(assets),
-        chunk_size
+        chunk_size,
     ):
 
         chunk = assets[
@@ -786,9 +630,7 @@ async def assets_command(
             for asset in chunk
         )
 
-        await update.message.reply_text(
-            text
-        )
+        await update.message.reply_text(text)
 
 
 # =========================================================
@@ -817,13 +659,13 @@ async def timeframe_command(
 
     markup = ReplyKeyboardMarkup(
         keyboard,
-        resize_keyboard=True
+        resize_keyboard=True,
     )
 
     await update.message.reply_text(
         "⏱ DOORO TIMEFRAME-KA\n\n"
         "Dooro candle timeframe-ka:",
-        reply_markup=markup
+        reply_markup=markup,
     )
 
 
@@ -860,17 +702,14 @@ async def timeframe_value(
     if not context.args:
 
         await update.message.reply_text(
-            "❌ Tusaale:\n"
-            "/timeframe 60"
+            "❌ Tusaale:\n/timeframe 60"
         )
 
         return
 
     try:
 
-        value = int(
-            context.args[0]
-        )
+        value = int(context.args[0])
 
         allowed = [
             60,
@@ -899,8 +738,7 @@ async def timeframe_value(
 
         await update.message.reply_text(
             "❌ Timeframe khalad ah.\n\n"
-            "Isticmaal 60, 180, 300, 900, "
-            "1800 ama 3600."
+            "Isticmaal 60, 180, 300, 900, 1800 ama 3600."
         )
 
 
@@ -916,17 +754,14 @@ async def expiry_value(
     if not context.args:
 
         await update.message.reply_text(
-            "❌ Tusaale:\n"
-            "/expiry 300"
+            "❌ Tusaale:\n/expiry 300"
         )
 
         return
 
     try:
 
-        value = int(
-            context.args[0]
-        )
+        value = int(context.args[0])
 
         allowed = [
             60,
@@ -969,9 +804,7 @@ async def signal_command(
 
     user_id = update.effective_user.id
 
-    settings = get_user_settings(
-        user_id
-    )
+    settings = get_user_settings(user_id)
 
     asset = settings["asset"]
     timeframe = settings["timeframe"]
@@ -989,96 +822,63 @@ async def signal_command(
         candles = await get_market_data(
             asset,
             timeframe,
-            CANDLE_COUNT
+            CANDLE_COUNT,
         )
 
-        df = candles_to_dataframe(
-            candles
-        )
+        df = candles_to_dataframe(candles)
 
         if df.empty:
-
             raise RuntimeError(
                 "Candle data lama akhrin karin."
             )
 
         if len(df) < 50:
-
             raise RuntimeError(
-                f"Candles ku filan lama helin. "
-                f"Received: {len(df)}"
+                f"Candles ku filan lama helin. Received: {len(df)}"
             )
 
-        result = analyze_market(
-            df
-        )
+        result = analyze_market(df)
 
         signal_name = result["signal"]
 
         if signal_name == "CALL":
-
             signal_text = "🟢 CALL"
 
         elif signal_name == "PUT":
-
             signal_text = "🔴 PUT"
 
         else:
-
             signal_text = "⚪ WAIT"
 
         rsi = result["rsi"]
 
         if rsi is None or pd.isna(rsi):
-
             rsi_text = "N/A"
-
         else:
-
             rsi_text = f"{rsi:.2f}"
 
         message = (
             "📊 NAASIRFX SIGNAL\n\n"
-
             f"💱 Asset: {asset}\n"
             f"⏱ Timeframe: {timeframe} sec\n"
             f"⌛ Expiry: {expiry} sec\n\n"
-
             f"🎯 FINAL SIGNAL: {signal_text}\n\n"
-
             "🔎 CONFIRMATION CHECK\n"
-
-            f"📈 MA10 + MA50: "
-            f"{result['trend']}\n"
-
-            f"📊 RSI: "
-            f"{rsi_text}\n"
-
-            f"📉 MACD: "
-            f"{result['macd']}\n"
-
-            f"〰️ Bollinger: "
-            f"{result['bollinger']}\n"
-
-            f"🕯 Candle: "
-            f"{result['candle']}\n\n"
-
-            f"🔥 Confirmation: "
-            f"{result['score']}/5\n\n"
-
+            f"📈 MA10 + MA50: {result['trend']}\n"
+            f"📊 RSI: {rsi_text}\n"
+            f"📉 MACD: {result['macd']}\n"
+            f"〰️ Bollinger: {result['bollinger']}\n"
+            f"🕯 Candle: {result['candle']}\n\n"
+            f"🔥 Confirmation: {result['score']}/5\n\n"
             "⚠️ Signal adag ah ayaa la isticmaalaa.\n"
             "⚠️ 95% win lama dammaanad qaadi karo."
         )
 
-        await update.message.reply_text(
-            message
-        )
+        await update.message.reply_text(message)
 
     except Exception as exc:
 
-        logger.exception(
-            "Signal error"
-        )
+        logger.exception("Signal error")
 
         await update.message.reply_text(
             "❌ MARKET DATA ERROR\n\n"
@@ -1097,61 +897,33 @@ async def message_handler(
     context: ContextTypes.DEFAULT_TYPE,
 ):
 
+    if not update.message or not update.message.text:
+        return
+
     text = update.message.text.strip()
-
-    user_id = update.effective_user.id
-
-    settings = get_user_settings(
-        user_id
-    )
 
     # -----------------------------------------------------
     # BUTTONS
     # -----------------------------------------------------
 
-    if text == "📊 SIGNAL":
-
-        await signal_command(
-            update,
-            context
-        )
-
+    if text.startswith("📊") and "SIGNAL" in text:
+        await signal_command(update, context)
         return
 
-    if text == "📋 ASSETS":
-
-        await assets_command(
-            update,
-            context
-        )
-
+    if text.startswith("📋") and "ASSETS" in text:
+        await assets_command(update, context)
         return
 
-    if text == "⏱ TIMEFRAME":
-
-        await timeframe_command(
-            update,
-            context
-        )
-
+    if text.startswith("⏱") and "TIMEFRAME" in text:
+        await timeframe_command(update, context)
         return
 
-    if text == "⌛ EXPIRY":
-
-        await expiry_command(
-            update,
-            context
-        )
-
+    if text.startswith("⌛") and "EXPIRY" in text:
+        await expiry_command(update, context)
         return
 
-    if text == "ℹ️ STATUS":
-
-        await status(
-            update,
-            context
-        )
-
+    if text.startswith("ℹ️") and "STATUS" in text:
+        await status(update, context)
         return
 
     # -----------------------------------------------------
@@ -1159,25 +931,21 @@ async def message_handler(
     # -----------------------------------------------------
 
     timeframe_map = {
-
         "1️⃣ 1 Minute": 60,
-
         "3️⃣ 3 Minutes": 180,
-
         "5️⃣ 5 Minutes": 300,
-
         "15️⃣ 15 Minutes": 900,
-
         "30️⃣ 30 Minutes": 1800,
-
         "60️⃣ 1 Hour": 3600,
     }
 
     if text in timeframe_map:
 
-        settings["timeframe"] = (
-            timeframe_map[text]
+        settings = get_user_settings(
+            update.effective_user.id
         )
+
+        settings["timeframe"] = timeframe_map[text]
 
         await update.message.reply_text(
             "✅ TIMEFRAME LA DOORTAY\n\n"
@@ -1196,46 +964,39 @@ async def message_handler(
         symbol = text[6:].strip()
 
         if not symbol:
-
             await update.message.reply_text(
                 "❌ Asset ma qorna."
+            )
+            return
+
+        exact_match = next(
+            (
+                asset
+                for asset in ASSET_CATALOG
+                if asset.lower() == symbol.lower()
+            ),
+            None,
+        )
+
+        if exact_match is None:
+
+            await update.message.reply_text(
+                "❌ Asset-kan catalog-ga lama helin.\n\n"
+                f"📊 {symbol}\n\n"
+                "Isticmaal 📋 ASSETS."
             )
 
             return
 
-        # Case-sensitive symbol-ka API-ga
-        # Waxaan hubineynaa catalog-ga marka uu jiro.
-        if ASSET_CATALOG:
+        settings = get_user_settings(
+            update.effective_user.id
+        )
 
-            exact_match = next(
-                (
-                    asset
-                    for asset in ASSET_CATALOG
-                    if asset.lower() == symbol.lower()
-                ),
-                None
-            )
-
-            if exact_match:
-
-                symbol = exact_match
-
-            else:
-
-                await update.message.reply_text(
-                    "❌ Asset-kan catalog-ga lama helin.\n\n"
-                    f"📊 {symbol}\n\n"
-                    "Isticmaal 📋 ASSETS "
-                    "si aad u aragto assets-ka."
-                )
-
-                return
-
-        settings["asset"] = symbol
+        settings["asset"] = exact_match
 
         await update.message.reply_text(
             "✅ ASSET LA DOORTAY\n\n"
-            f"📊 {symbol}\n\n"
+            f"📊 {exact_match}\n\n"
             "Hadda riix 📊 SIGNAL."
         )
 
@@ -1265,14 +1026,13 @@ async def message_handler(
 def main():
 
     if not TELEGRAM_TOKEN:
-
         raise RuntimeError(
             "TELEGRAM_BOT_TOKEN is missing."
         )
 
     Thread(
         target=start_web_server,
-        daemon=True
+        daemon=True,
     ).start()
 
     application = (
@@ -1282,58 +1042,37 @@ def main():
     )
 
     application.add_handler(
-        CommandHandler(
-            "start",
-            start
-        )
+        CommandHandler("start", start)
     )
 
     application.add_handler(
-        CommandHandler(
-            "status",
-            status
-        )
+        CommandHandler("status", status)
     )
 
     application.add_handler(
-        CommandHandler(
-            "signal",
-            signal_command
-        )
+        CommandHandler("signal", signal_command)
     )
 
     application.add_handler(
-        CommandHandler(
-            "assets",
-            assets_command
-        )
+        CommandHandler("assets", assets_command)
     )
 
     application.add_handler(
-        CommandHandler(
-            "timeframe",
-            timeframe_value
-        )
+        CommandHandler("timeframe", timeframe_value)
     )
 
     application.add_handler(
-        CommandHandler(
-            "expiry",
-            expiry_value
-        )
+        CommandHandler("expiry", expiry_value)
     )
 
     application.add_handler(
         MessageHandler(
-            filters.TEXT
-            & ~filters.COMMAND,
-            message_handler
+            filters.TEXT & ~filters.COMMAND,
+            message_handler,
         )
     )
 
-    logger.info(
-        "NaasirFx starting..."
-    )
+    logger.info("NaasirFx starting...")
 
     application.run_polling(
         drop_pending_updates=True
