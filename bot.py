@@ -906,9 +906,9 @@ async def message_handler(
     # BUTTONS
     # -----------------------------------------------------
 
-    if text.startswith("📊") and "SIGNAL" in text:
-        await signal_command(update, context)
-        return
+    if "SIGNAL" in text.upper():
+    await signal_command(update, context)
+    return
 
     if text.startswith("📋") and "ASSETS" in text:
         await assets_command(update, context)
