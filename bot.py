@@ -166,38 +166,17 @@ def candles_to_dataframe(candles):
     if not candles:
         return pd.DataFrame()
 
-    df = pd.DataFrame(candles)
+    rows = []
 
-    # Pocket Option API mararka qaar waxay soo celisaa
-    # xogta OHLC magacyo kala duwan leh.
-    rename_map = {
-        "o": "open",
-        "h": "high",
-        "l": "low",
-        "c": "close",
-    }
+    for candle in candles:
+        rows.append({
+            "open": float(candle.open),
+            "high": float(candle.high),
+            "low": float(candle.low),
+            "close": float(candle.close),
+        })
 
-    df = df.rename(columns=rename_map)
-
-    required = ["open", "high", "low", "close"]
-
-    missing = [column for column in required if column not in df.columns]
-
-    if missing:
-        raise RuntimeError(
-            f"Missing candle columns: {', '.join(missing)}. "
-            f"Received columns: {list(df.columns)}"
-        )
-
-    for column in required:
-        df[column] = pd.to_numeric(
-            df[column],
-            errors="coerce"
-        )
-
-    df = df.dropna(
-        subset=required
-    ).reset_index(drop=True)
+    df = pd.DataFrame(rows)
 
     return df
 
