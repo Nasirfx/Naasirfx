@@ -1,10 +1,11 @@
 import os
 import asyncio
-import logging
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import math
 from threading import Thread
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pandas as pd
+import numpy as np
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -23,84 +24,39 @@ from pocketoptionapi_async.constants import ASSETS
 # SETTINGS
 # =========================================================
 
-BOT_NAME = "NaasirFx"
-
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 POCKET_SSID = os.getenv("POCKET_OPTION_SSID")
 
 DEFAULT_ASSET = "EURUSD_otc"
 
-# 3 minutes
-DEFAULT_TIMEFRAME = 180
+# TIMEFRAME and EXPIRY are completely independent
+DEFAULT_TIMEFRAME = 180       # 3 minutes
+DEFAULT_EXPIRY = 180          # 3 minutes
 
-# 3 minutes expiry
-DEFAULT_EXPIRY = 180
-
-# Higher timeframe = 5 minutes
-HIGHER_TIMEFRAME = 300
-
+HIGHER_TIMEFRAME = 300        # 5 minutes
 CANDLE_COUNT = 100
 
 
 # =========================================================
-# LOGGING
+# SIMPLE WEB SERVER FOR RENDER
 # =========================================================
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-)
+class HealthHandler(BaseHTTPRequestHandler):
 
-logger = logging.getLogger("NaasirFx")
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"NaasirFx is running")
 
-
-# =========================================================
-# ASSET CATALOG
-# =========================================================
-
-def load_assets():
-    assets = []
-
-    try:
-        if isinstance(ASSETS, dict):
-
-            for key, value in ASSETS.items():
-
-                if isinstance(value, str):
-                    assets.append(value)
-                else:
-                    assets.append(str(key))
-
-        elif isinstance(ASSETS, (list, tuple, set)):
-
-            for item in ASSETS:
-
-                if isinstance(item, str):
-                    assets.append(item)
-
-                elif isinstance(item, dict):
-
-                    symbol = (
-                        item.get("symbol")
-                        or item.get("asset")
-                        or item.get("name")
-                    )
-
-                    if symbol:
-                        assets.append(str(symbol))
-
-    except Exception as exc:
-        logger.error("ASSETS error: %s", exc)
-
-    assets = list(dict.fromkeys(assets))
-
-    if DEFAULT_ASSET not in assets:
-        assets.insert(0, DEFAULT_ASSET)
-
-    return assets
+    def log_message(self, format, *args):
+        return
 
 
-ASSET_CATALOG = load_assets()
+def run_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    server.serve_forever()
 
 
 # =========================================================
@@ -113,7 +69,6 @@ USER_SETTINGS = {}
 def get_settings(user_id):
 
     if user_id not in USER_SETTINGS:
-
         USER_SETTINGS[user_id] = {
             "asset": DEFAULT_ASSET,
             "timeframe": DEFAULT_TIMEFRAME,
@@ -124,193 +79,151 @@ def get_settings(user_id):
 
 
 # =========================================================
-# RENDER HEALTH SERVER
+# KEYBOARD
 # =========================================================
 
-class HealthHandler(BaseHTTPRequestHandler):
+def main_keyboard():
 
-    def do_GET(self):
+    keyboard = [
+        ["📊 SIGNAL"],
+        ["📋 PAIRS"],
+        ["⏱ TIMEFRAME", "⌛ EXPIRY"],
+        ["ℹ️ STATUS"],
+    ]
 
-        self.send_response(200)
-
-        self.send_header(
-            "Content-Type",
-            "text/plain",
-        )
-
-        self.end_headers()
-
-        self.wfile.write(
-            b"NaasirFx is running"
-        )
-
-    def log_message(self, format, *args):
-        return
-
-
-def start_health_server():
-
-    port = int(
-        os.getenv("PORT", "10000")
+    return ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True
     )
-
-    server = HTTPServer(
-        ("0.0.0.0", port),
-        HealthHandler,
-    )
-
-    logger.info(
-        "Health server running on port %s",
-        port,
-    )
-
-    server.serve_forever()
 
 
 # =========================================================
-# POCKET OPTION CONNECTION
+# HELPERS
 # =========================================================
 
-async def connect_pocket():
+def timeframe_name(seconds):
 
-    if not POCKET_SSID:
-        raise RuntimeError(
-            "POCKET_OPTION_SSID is missing."
-        )
+    names = {
+        60: "1 Minute",
+        180: "3 Minutes",
+        300: "5 Minutes",
+        900: "15 Minutes",
+        1800: "30 Minutes",
+        3600: "1 Hour",
+    }
 
-    last_error = None
+    return names.get(seconds, f"{seconds} Seconds")
 
-    for attempt in range(1, 4):
 
-        try:
+def expiry_name(seconds):
 
-            logger.info(
-                "Pocket Option connection %s/3",
-                attempt,
-            )
+    names = {
+        60: "1 Minute",
+        180: "3 Minutes",
+        300: "5 Minutes",
+        600: "10 Minutes",
+        900: "15 Minutes",
+    }
 
-            client = AsyncPocketOptionClient(
-                POCKET_SSID,
-                is_demo=True,
-            )
+    return names.get(seconds, f"{seconds} Seconds")
 
-            result = await client.connect()
 
-            if result is False:
-                raise RuntimeError(
-                    "Pocket Option connect returned False."
-                )
+def format_price(value):
 
-            logger.info(
-                "Pocket Option connected."
-            )
+    try:
+        value = float(value)
 
-            return client
+        if value >= 100:
+            return f"{value:.2f}"
 
-        except Exception as exc:
+        if value >= 1:
+            return f"{value:.5f}"
 
-            last_error = exc
+        return f"{value:.6f}"
 
-            logger.error(
-                "Connection %s failed: %s",
-                attempt,
-                exc,
-            )
-
-            if attempt < 3:
-                await asyncio.sleep(5)
-
-    raise RuntimeError(
-        "Pocket Option connection failed. "
-        f"Last error: {last_error}"
-    )
+    except Exception:
+        return str(value)
 
 
 # =========================================================
 # GET CANDLES
 # =========================================================
 
-async def get_candles(
-    asset,
-    timeframe,
-    count=CANDLE_COUNT,
-):
+async def get_candles(asset, timeframe, count=CANDLE_COUNT):
 
     client = None
 
     try:
 
-        client = await connect_pocket()
+        if not POCKET_SSID:
+            return None
+
+        client = AsyncPocketOptionClient(
+            POCKET_SSID,
+            is_demo=True,
+        )
+
+        connected = await client.connect()
+
+        if not connected:
+            return None
 
         candles = await client.get_candles(
             asset,
             timeframe,
-            count,
+            count
         )
 
         if not candles:
+            return None
 
-            raise RuntimeError(
-                f"No candle data for {asset}"
-            )
+        rows = []
 
-        return candles
+        for candle in candles:
+
+            try:
+
+                # Object format
+                if hasattr(candle, "open"):
+
+                    rows.append({
+                        "open": float(candle.open),
+                        "high": float(candle.high),
+                        "low": float(candle.low),
+                        "close": float(candle.close),
+                    })
+
+                # Dictionary format
+                elif isinstance(candle, dict):
+
+                    rows.append({
+                        "open": float(candle["open"]),
+                        "high": float(candle["high"]),
+                        "low": float(candle["low"]),
+                        "close": float(candle["close"]),
+                    })
+
+            except Exception:
+                continue
+
+        if len(rows) < 20:
+            return None
+
+        return pd.DataFrame(rows)
+
+    except Exception as e:
+
+        print("CANDLE ERROR:", e)
+
+        return None
 
     finally:
 
-        if client is not None:
-
-            try:
-                await client.disconnect()
-
-            except Exception:
-                pass
-
-
-# =========================================================
-# CANDLES -> DATAFRAME
-# =========================================================
-
-def candles_to_dataframe(candles):
-
-    if not candles:
-        return pd.DataFrame()
-
-    rows = []
-
-    for candle in candles:
-
-        # Pocket Option object format
         try:
-
-            rows.append({
-                "open": float(candle.open),
-                "high": float(candle.high),
-                "low": float(candle.low),
-                "close": float(candle.close),
-            })
-
-            continue
-
+            if client:
+                await client.disconnect()
         except Exception:
             pass
-
-        # Dictionary backup
-        if isinstance(candle, dict):
-
-            try:
-
-                rows.append({
-                    "open": float(candle["open"]),
-                    "high": float(candle["high"]),
-                    "low": float(candle["low"]),
-                    "close": float(candle["close"]),
-                })
-
-            except Exception:
-                pass
-
-    return pd.DataFrame(rows)
 
 
 # =========================================================
@@ -324,207 +237,459 @@ def calculate_rsi(series, period=14):
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
 
-    avg_gain = gain.rolling(
-        period
-    ).mean()
+    avg_gain = gain.rolling(period).mean()
+    avg_loss = loss.rolling(period).mean()
 
-    avg_loss = loss.rolling(
-        period
-    ).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
 
-    rs = avg_gain / avg_loss.replace(
-        0,
-        float("nan"),
+    rsi = 100 - (100 / (1 + rs))
+
+    return rsi
+
+
+# =========================================================
+# CANDLE DIRECTION
+# =========================================================
+
+def candle_direction(row):
+
+    if row["close"] > row["open"]:
+        return "CALL"
+
+    if row["close"] < row["open"]:
+        return "PUT"
+
+    return "WAIT"
+
+
+def candle_emoji(direction):
+
+    if direction == "CALL":
+        return "🟢"
+
+    if direction == "PUT":
+        return "🔴"
+
+    return "⚪"
+
+
+def candle_text(direction):
+
+    if direction == "CALL":
+        return "Bullish 🟢"
+
+    if direction == "PUT":
+        return "Bearish 🔴"
+
+    return "Doji ⚪"
+
+
+# =========================================================
+# ASSET VALIDATION
+# =========================================================
+
+def get_asset_list():
+
+    result = []
+
+    try:
+
+        if isinstance(ASSETS, dict):
+
+            result = list(ASSETS.keys())
+
+        elif isinstance(ASSETS, (list, tuple, set)):
+
+            result = list(ASSETS)
+
+    except Exception as e:
+
+        print("ASSET LIST ERROR:", e)
+
+    return sorted(
+        [str(x) for x in result]
     )
 
-    return 100 - (
-        100 / (1 + rs)
+
+def asset_exists(asset):
+
+    assets = get_asset_list()
+
+    return asset in assets
+
+
+# =========================================================
+# START
+# =========================================================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await update.message.reply_text(
+        "👋 Salaam sxbow!\n\n"
+        "🤖 NaasirFx Signal Bot\n\n"
+        "📌 Pair-ka adiga ayaa dooranaya.\n"
+        "⏱ Timeframe-ka adiga ayaa dooranaya.\n"
+        "⌛ Expiry-ga adiga ayaa dooranaya.\n\n"
+        "⚠️ Automatic pair selection ma jiro.\n"
+        "⚠️ Auto-trading ma jiro.\n\n"
+        "Dooro waxa aad rabto 👇",
+        reply_markup=main_keyboard()
     )
 
 
 # =========================================================
-# ANALYZE MAIN TIMEFRAME
+# STATUS
 # =========================================================
 
-def analyze_main(df):
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    result = {
-        "trend": "WAIT",
-        "rsi_signal": "WAIT",
-        "rsi": None,
-        "current_candle": "WAIT",
-        "previous_candle": "WAIT",
-        "price": None,
-        "ma10": None,
-        "ma50": None,
-    }
+    user_id = update.effective_user.id
+    settings = get_settings(user_id)
 
-    if df.empty:
-        return result
+    token_status = "✅ OK" if TOKEN else "❌ MISSING"
+    ssid_status = "✅ OK" if POCKET_SSID else "❌ MISSING"
 
-    if len(df) < 50:
-        return result
+    await update.message.reply_text(
+        "🤖 NAASIRFX STATUS\n\n"
 
-    df = df.copy()
+        f"Telegram Token: {token_status}\n"
+        f"Pocket Option SSID: {ssid_status}\n\n"
 
-    # -----------------------------------------------------
-    # MA10 / MA50
-    # -----------------------------------------------------
+        f"💱 Pair: {settings['asset']}\n"
+        f"⏱ Timeframe: {timeframe_name(settings['timeframe'])}\n"
+        f"⌛ Expiry: {expiry_name(settings['expiry'])}\n\n"
 
-    df["MA10"] = df["close"].rolling(
-        10
-    ).mean()
-
-    df["MA50"] = df["close"].rolling(
-        50
-    ).mean()
-
-    # -----------------------------------------------------
-    # RSI
-    # -----------------------------------------------------
-
-    df["RSI"] = calculate_rsi(
-        df["close"],
-        14,
+        f"📋 Asset catalog: {len(get_asset_list())}"
     )
 
-    # -----------------------------------------------------
-    # LAST TWO CANDLES
-    # -----------------------------------------------------
 
-    last = df.iloc[-1]
+# =========================================================
+# PAIRS
+# =========================================================
+
+async def pairs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    assets = get_asset_list()
+
+    if not assets:
+
+        await update.message.reply_text(
+            "❌ Pair list lama helin."
+        )
+
+        return
+
+    # Show common pairs first
+    preferred = [
+        "EURUSD_otc",
+        "GBPUSD_otc",
+        "USDJPY_otc",
+        "AUDUSD_otc",
+        "USDCAD_otc",
+        "USDCHF_otc",
+        "EURJPY_otc",
+        "EURGBP_otc",
+        "NZDUSD_otc",
+        "EURCHF_otc",
+        "GBPJPY_otc",
+        "AUDJPY_otc",
+    ]
+
+    selected = []
+
+    for pair in preferred:
+
+        if pair in assets:
+            selected.append(pair)
+
+    for pair in assets:
+
+        if pair not in selected:
+            selected.append(pair)
+
+    # Telegram message limit protection
+    selected = selected[:80]
+
+    text = "📋 PAIRS\n\n"
+
+    for pair in selected:
+        text += f"• {pair}\n"
+
+    text += (
+        "\n📌 Pair aad rabto ku qor:\n"
+        "ASSET EURUSD_otc\n\n"
+        "Tusaale:\n"
+        "ASSET GBPUSD_otc"
+    )
+
+    await update.message.reply_text(text)
+
+
+# =========================================================
+# ASSET COMMAND
+# =========================================================
+
+async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    if not context.args:
+
+        await update.message.reply_text(
+            "❌ Qor pair-ka.\n\n"
+            "Tusaale:\n"
+            "ASSET EURUSD_otc"
+        )
+
+        return
+
+    asset = context.args[0].strip()
+
+    if not asset_exists(asset):
+
+        await update.message.reply_text(
+            f"❌ Pair-kan catalog-ga kuma jiro:\n\n"
+            f"{asset}\n\n"
+            "Isticmaal 📋 PAIRS si aad u aragto pair-yada."
+        )
+
+        return
+
+    settings = get_settings(user_id)
+
+    settings["asset"] = asset
+
+    await update.message.reply_text(
+        "✅ PAIR-KA WAA LA DOORTAY\n\n"
+        f"💱 Pair: {asset}\n\n"
+        "⏱ Timeframe-ka iyo ⌛ Expiry-ga "
+        "waxba kama beddelmin."
+    )
+
+
+# =========================================================
+# TIMEFRAME MENU
+# =========================================================
+
+async def timeframe_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    keyboard = [
+        ["1️⃣ 1 Minute", "3️⃣ 3 Minutes"],
+        ["5️⃣ 5 Minutes", "1️⃣5️⃣ 15 Minutes"],
+        ["3️⃣0️⃣ 30 Minutes", "1️⃣ Hour"],
+        ["🔙 BACK"],
+    ]
+
+    await update.message.reply_text(
+        "⏱ TIMEFRAME\n\n"
+        "Dooro timeframe-ka aad rabto.\n\n"
+        "📌 Timeframe-ku waa madax-bannaan.\n"
+        "⌛ Expiry-ga ma beddelayo.",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard,
+            resize_keyboard=True
+        )
+    )
+
+
+# =========================================================
+# EXPIRY MENU
+# =========================================================
+
+async def expiry_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    keyboard = [
+        ["1️⃣ 1 Minute", "3️⃣ 3 Minutes"],
+        ["5️⃣ 5 Minutes", "🔟 10 Minutes"],
+        ["1️⃣5️⃣ 15 Minutes"],
+        ["🔙 BACK"],
+    ]
+
+    await update.message.reply_text(
+        "⌛ EXPIRY\n\n"
+        "Dooro expiry-ga aad rabto.\n\n"
+        "📌 Expiry-gu waa madax-bannaan.\n"
+        "⏱ Timeframe-ka ma beddelayo.",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard,
+            resize_keyboard=True
+        )
+    )
+
+
+# =========================================================
+# TIMEFRAME SET
+# =========================================================
+
+async def set_timeframe(update: Update, seconds):
+
+    user_id = update.effective_user.id
+    settings = get_settings(user_id)
+
+    # ONLY timeframe changes
+    settings["timeframe"] = seconds
+
+    await update.message.reply_text(
+        "✅ TIMEFRAME WAA LA DOORTAY\n\n"
+        f"⏱ Timeframe: {timeframe_name(seconds)}\n"
+        f"💱 Pair: {settings['asset']}\n"
+        f"⌛ Expiry: {expiry_name(settings['expiry'])}\n\n"
+        "📌 Expiry-gu isma beddelin."
+    )
+
+
+# =========================================================
+# EXPIRY SET
+# =========================================================
+
+async def set_expiry(update: Update, seconds):
+
+    user_id = update.effective_user.id
+    settings = get_settings(user_id)
+
+    # ONLY expiry changes
+    settings["expiry"] = seconds
+
+    await update.message.reply_text(
+        "✅ EXPIRY WAA LA DOORTAY\n\n"
+        f"⌛ Expiry: {expiry_name(seconds)}\n"
+        f"💱 Pair: {settings['asset']}\n"
+        f"⏱ Timeframe: {timeframe_name(settings['timeframe'])}\n\n"
+        "📌 Timeframe-ku isma beddelin."
+    )
+
+
+# =========================================================
+# SIGNAL
+# =========================================================
+
+async def signal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+    settings = get_settings(user_id)
+
+    asset = settings["asset"]
+    timeframe = settings["timeframe"]
+    expiry = settings["expiry"]
+
+    await update.message.reply_text(
+        "🔎 Signal-ka waan baarayaa...\n\n"
+        f"💱 {asset}\n"
+        f"⏱ {timeframe_name(timeframe)}\n"
+        f"⌛ Expiry: {expiry_name(expiry)}"
+    )
+
+    # Main timeframe
+    df = await get_candles(
+        asset,
+        timeframe,
+        CANDLE_COUNT
+    )
+
+    if df is None or len(df) < 60:
+
+        await update.message.reply_text(
+            "❌ DATA LAMA HELIN\n\n"
+
+            f"Asset: {asset}\n"
+            f"Timeframe: {timeframe_name(timeframe)}\n\n"
+
+            "Bot-ku candles kama helin "
+            "Pocket Option API-ga asset-kan.\n\n"
+
+            "ℹ️ Bot-ku ma sameynayo signal been ah."
+        )
+
+        return
+
+    # Higher timeframe
+    higher_df = await get_candles(
+        asset,
+        HIGHER_TIMEFRAME,
+        CANDLE_COUNT
+    )
+
+    if higher_df is None or len(higher_df) < 60:
+
+        await update.message.reply_text(
+            "❌ HIGHER TIMEFRAME DATA LAMA HELIN\n\n"
+
+            f"Asset: {asset}\n"
+            f"Higher TF: {timeframe_name(HIGHER_TIMEFRAME)}\n\n"
+
+            "Bot-ku ma sameynayo signal been ah."
+        )
+
+        return
+
+    # =====================================================
+    # MAIN INDICATORS
+    # =====================================================
+
+    df["MA10"] = df["close"].rolling(10).mean()
+    df["MA50"] = df["close"].rolling(50).mean()
+    df["RSI"] = calculate_rsi(df["close"])
+
+    latest = df.iloc[-1]
     previous = df.iloc[-2]
 
-    # -----------------------------------------------------
+    price = float(latest["close"])
+
+    ma10 = float(latest["MA10"])
+    ma50 = float(latest["MA50"])
+
+    rsi = float(latest["RSI"])
+
+    # =====================================================
     # TREND
-    # -----------------------------------------------------
+    # =====================================================
 
-    if last["MA10"] > last["MA50"]:
-
+    if ma10 > ma50:
         trend = "CALL"
 
-    elif last["MA10"] < last["MA50"]:
-
+    elif ma10 < ma50:
         trend = "PUT"
 
     else:
-
         trend = "WAIT"
 
-    # -----------------------------------------------------
+    # =====================================================
     # RSI
-    #
-    # > 50 = CALL
-    # < 50 = PUT
-    # -----------------------------------------------------
+    # =====================================================
 
-    rsi_value = last["RSI"]
-
-    if pd.isna(rsi_value):
-
-        rsi_signal = "WAIT"
-
-    elif rsi_value > 50:
-
+    if rsi >= 50:
         rsi_signal = "CALL"
 
-    elif rsi_value < 50:
-
+    else:
         rsi_signal = "PUT"
 
-    else:
-
-        rsi_signal = "WAIT"
-
-    # -----------------------------------------------------
+    # =====================================================
     # CURRENT CANDLE
-    # -----------------------------------------------------
+    # =====================================================
 
-    if last["close"] > last["open"]:
+    current_candle = candle_direction(latest)
 
-        current_candle = "CALL"
-
-    elif last["close"] < last["open"]:
-
-        current_candle = "PUT"
-
-    else:
-
-        current_candle = "WAIT"
-
-    # -----------------------------------------------------
+    # =====================================================
     # PREVIOUS CANDLE
-    # -----------------------------------------------------
+    # =====================================================
 
-    if previous["close"] > previous["open"]:
+    previous_candle = candle_direction(previous)
 
-        previous_candle = "CALL"
+    # =====================================================
+    # HIGHER TIMEFRAME
+    # =====================================================
 
-    elif previous["close"] < previous["open"]:
+    higher_latest = higher_df.iloc[-1]
 
-        previous_candle = "PUT"
+    higher_candle = candle_direction(
+        higher_latest
+    )
 
-    else:
+    higher_signal = higher_candle
 
-        previous_candle = "WAIT"
-
-    return {
-        "trend": trend,
-        "rsi_signal": rsi_signal,
-        "rsi": rsi_value,
-        "current_candle": current_candle,
-        "previous_candle": previous_candle,
-        "price": last["close"],
-        "ma10": last["MA10"],
-        "ma50": last["MA50"],
-    }
-
-
-# =========================================================
-# HIGHER TIMEFRAME ANALYSIS
-# =========================================================
-
-def analyze_higher_timeframe(df):
-
-    if df.empty:
-        return "WAIT", "WAIT"
-
-    if len(df) < 20:
-        return "WAIT", "WAIT"
-
-    df = df.copy()
-
-    last = df.iloc[-1]
-
-    if last["close"] > last["open"]:
-
-        signal = "CALL"
-        candle = "Bullish"
-
-    elif last["close"] < last["open"]:
-
-        signal = "PUT"
-        candle = "Bearish"
-
-    else:
-
-        signal = "WAIT"
-        candle = "Doji"
-
-    return signal, candle
-
-
-# =========================================================
-# FINAL CONFIRMATION
-# =========================================================
-
-def final_confirmation(
-    trend,
-    rsi_signal,
-    current_candle,
-    previous_candle,
-    higher_signal,
-):
+    # =====================================================
+    # CONFIRMATIONS
+    # =====================================================
 
     checks = [
         trend,
@@ -534,336 +699,182 @@ def final_confirmation(
         higher_signal,
     ]
 
-    call_score = checks.count("CALL")
-    put_score = checks.count("PUT")
+    call_count = checks.count("CALL")
+    put_count = checks.count("PUT")
 
-    if call_score >= 4:
+    if call_count >= 4:
 
         final_signal = "CALL"
+        final_text = "🟢 CALL — STRONG CONFIRMATION"
 
-    elif put_score >= 4:
+    elif put_count >= 4:
 
         final_signal = "PUT"
+        final_text = "🔴 PUT — STRONG CONFIRMATION"
 
     else:
 
         final_signal = "WAIT"
+        final_text = "⚪ WAIT — NO STRONG CONFIRMATION"
 
-    return (
-        final_signal,
-        call_score,
-        put_score,
-    )
+    # =====================================================
+    # RSI DISPLAY
+    # =====================================================
 
+    rsi_emoji = "🟢" if rsi_signal == "CALL" else "🔴"
 
-# =========================================================
-# MAIN KEYBOARD
-# =========================================================
+    # =====================================================
+    # FINAL MESSAGE
+    # =====================================================
 
-def main_keyboard():
+    message = (
+        "📊 LALAA24BOT SIGNAL\n\n"
 
-    keyboard = [
-        [
-            "📊 SIGNAL",
-            "📋 ASSETS",
-        ],
-        [
-            "⏱ TIMEFRAME",
-            "⌛ EXPIRY",
-        ],
-        [
-            "ℹ️ STATUS",
-        ],
-    ]
+        f"💱 Asset: {asset}\n\n"
 
-    return ReplyKeyboardMarkup(
-        keyboard,
-        resize_keyboard=True,
-    )
+        "📌 FINAL SIGNAL:\n"
+        f"{final_text}\n\n"
 
+        "🔎 CONFIRMATION CHECK\n\n"
 
-# =========================================================
-# START
-# =========================================================
+        "📈 Trend — MA10 + MA50:\n"
+        f"{trend}\n\n"
 
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+        "📊 Momentum — RSI:\n"
+        f"{rsi_signal} ({rsi_emoji} RSI {rsi:.2f})\n\n"
 
-    await update.message.reply_text(
-        "🤖 NAASIRFX\n\n"
-        "Ku soo dhawoow NaasirFx.\n\n"
-        "📊 SIGNAL - Signal samee\n"
-        "📋 ASSETS - Assets-ka\n"
-        "⏱ TIMEFRAME - Timeframe\n"
-        "⌛ EXPIRY - Expiry\n"
-        "ℹ️ STATUS - Status",
-        reply_markup=main_keyboard(),
-    )
+        "🕯 Candle confirmation:\n"
+        f"{current_candle} "
+        f"({candle_emoji(current_candle)})\n"
+        f"Current: {candle_text(current_candle)}\n\n"
 
+        "🔎 Previous candle confirmation:\n"
+        f"{previous_candle} "
+        f"({candle_emoji(previous_candle)})\n"
+        f"Previous: {candle_text(previous_candle)}\n\n"
 
-# =========================================================
-# STATUS
-# =========================================================
+        "⏱ Higher Timeframe confirmation:\n"
+        f"{higher_signal} {candle_emoji(higher_signal)}\n"
+        f"Higher TF: {timeframe_name(HIGHER_TIMEFRAME)}\n"
+        f"Higher candle: {candle_text(higher_signal)}\n\n"
 
-async def status(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+        "📊 CONFIRMATION RESULT\n"
+        f"🟢 CALL confirmations: {call_count}/5\n"
+        f"🔴 PUT confirmations: {put_count}/5\n\n"
 
-    settings = get_settings(
-        update.effective_user.id
-    )
+        f"💰 Price: {format_price(price)}\n"
+        f"MA10: {format_price(ma10)}\n"
+        f"MA50: {format_price(ma50)}\n"
+        f"RSI: {rsi:.2f}\n\n"
 
-    token = (
-        "✅ OK"
-        if TELEGRAM_TOKEN
-        else "❌ Missing"
-    )
+        f"⏱ Timeframe: {timeframe_name(timeframe)}\n"
+        f"⌛ Expiry: {expiry_name(expiry)}\n\n"
 
-    ssid = (
-        "✅ OK"
-        if POCKET_SSID
-        else "❌ Missing"
+        "⚠️ Signal-ku waa technical confirmation oo keliya.\n"
+        "⚠️ 95% win lama dammaanad qaadi karo."
     )
 
     await update.message.reply_text(
-        "🤖 NAASIRFX STATUS\n\n"
-        f"Telegram Token: {token}\n"
-        f"Pocket Option SSID: {ssid}\n\n"
-        f"📊 Asset: {settings['asset']}\n"
-        f"⏱ Timeframe: {settings['timeframe']} sec\n"
-        f"⌛ Expiry: {settings['expiry']} sec\n"
-        f"⏱ Higher TF: {HIGHER_TIMEFRAME} sec\n\n"
-        f"📋 Asset catalog: {len(ASSET_CATALOG)}",
-        reply_markup=main_keyboard(),
+        message,
+        reply_markup=main_keyboard()
     )
 
 
 # =========================================================
-# ASSETS
+# TEXT HANDLER
 # =========================================================
 
-async def assets_command(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not ASSET_CATALOG:
+    text = update.message.text.strip()
+    upper = text.upper()
 
-        await update.message.reply_text(
-            "❌ Asset catalog lama helin."
-        )
+    # SIGNAL
+    if "SIGNAL" in upper:
 
+        await signal_command(update, context)
         return
 
-    search = ""
+    # PAIRS
+    if "PAIRS" in upper:
 
-    if context.args:
-
-        search = " ".join(
-            context.args
-        ).strip().lower()
-
-    if search:
-
-        assets = [
-            asset
-            for asset in ASSET_CATALOG
-            if search in asset.lower()
-        ]
-
-    else:
-
-        assets = ASSET_CATALOG
-
-    if not assets:
-
-        await update.message.reply_text(
-            "❌ Asset-kaas lama helin."
-        )
-
+        await pairs_command(update, context)
         return
 
-    await update.message.reply_text(
-        "📋 NAASIRFX ASSETS\n\n"
-        f"Total catalog: {len(ASSET_CATALOG)}\n"
-        f"Found: {len(assets)}\n\n"
-        "Asset dooro sidan:\n"
-        "ASSET EURUSD_otc"
-    )
+    # TIMEFRAME
+    if "TIMEFRAME" in upper:
 
-    for i in range(
-        0,
-        len(assets),
-        40,
-    ):
-
-        chunk = assets[
-            i:i + 40
-        ]
-
-        text = "\n".join(
-            f"• {asset}"
-            for asset in chunk
-        )
-
-        await update.message.reply_text(
-            text
-        )
-
-
-# =========================================================
-# SELECT ASSET
-# =========================================================
-
-async def select_asset(
-    update: Update,
-    asset_name,
-):
-
-    asset_name = asset_name.strip()
-
-    matched_asset = None
-
-    for asset in ASSET_CATALOG:
-
-        if asset.lower() == asset_name.lower():
-
-            matched_asset = asset
-            break
-
-    if matched_asset is None:
-
-        await update.message.reply_text(
-            "❌ ASSET LAMA HELIN\n\n"
-            f"Waxaad dirtay: {asset_name}\n\n"
-            "Isticmaal 📋 ASSETS si aad u aragto magaca saxda ah."
-        )
-
+        await timeframe_menu(update, context)
         return
 
-    settings = get_settings(
-        update.effective_user.id
-    )
+    # EXPIRY
+    if "EXPIRY" in upper:
 
-    settings["asset"] = matched_asset
-
-    await update.message.reply_text(
-        "✅ ASSET LA DOORTAY\n\n"
-        f"📊 {matched_asset}\n\n"
-        "Hadda riix 📊 SIGNAL.",
-        reply_markup=main_keyboard(),
-    )
-
-
-# =========================================================
-# TIMEFRAME MENU
-# =========================================================
-
-async def timeframe_menu(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
-    keyboard = [
-        [
-            "1️⃣ 1 Minute",
-            "3️⃣ 3 Minutes",
-        ],
-        [
-            "5️⃣ 5 Minutes",
-            "15️⃣ 15 Minutes",
-        ],
-        [
-            "30️⃣ 30 Minutes",
-            "60️⃣ 1 Hour",
-        ],
-    ]
-
-    await update.message.reply_text(
-        "⏱ DOORO TIMEFRAME-KA",
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard,
-            resize_keyboard=True,
-        ),
-    )
-
-
-# =========================================================
-# TIMEFRAME COMMAND
-# =========================================================
-
-async def timeframe_command(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
-    if not context.args:
-
-        await update.message.reply_text(
-            "❌ Tusaale:\n"
-            "/timeframe 180"
-        )
-
+        await expiry_menu(update, context)
         return
 
-    try:
+    # STATUS
+    if "STATUS" in upper:
 
-        value = int(
-            context.args[0]
-        )
+        await status_command(update, context)
+        return
 
-        allowed = [
-            60,
-            180,
-            300,
-            900,
-            1800,
-            3600,
-        ]
-
-        if value not in allowed:
-            raise ValueError
-
-        settings = get_settings(
-            update.effective_user.id
-        )
-
-        settings["timeframe"] = value
+    # BACK
+    if "BACK" in upper:
 
         await update.message.reply_text(
-            "✅ TIMEFRAME LA DOORTAY\n\n"
-            f"⏱ {value} seconds",
-            reply_markup=main_keyboard(),
+            "🔙 Main menu",
+            reply_markup=main_keyboard()
         )
+        return
 
-    except Exception:
+    # TIMEFRAME BUTTONS
+    if text == "1️⃣ 1 Minute":
 
-        await update.message.reply_text(
-            "❌ Timeframe khalad ah.\n\n"
-            "60, 180, 300, 900, 1800 ama 3600."
-        )
+        await set_timeframe(update, 60)
+        return
 
+    if text == "3️⃣ 3 Minutes":
 
-# =========================================================
-# EXPIRY MENU
-# =========================================================
+        # This button is shared by both menus.
+        # If user is in expiry menu, expiry should be handled
+        # by explicit expiry command or the expiry buttons below.
+        await set_timeframe(update, 180)
+        return
 
-async def expiry_menu(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+    if text == "5️⃣ 5 Minutes":
+
+        await set_timeframe(update, 300)
+        return
+
+    if text == "1️⃣5️⃣ 15 Minutes":
+
+        await set_timeframe(update, 900)
+        return
+
+    if text == "3️⃣0️⃣ 30 Minutes":
+
+        await set_timeframe(update, 1800)
+        return
+
+    if text == "1️⃣ Hour":
+
+        await set_timeframe(update, 3600)
+        return
+
+    # EXPIRY BUTTONS
+    if text == "🔟 10 Minutes":
+
+        await set_expiry(update, 600)
+        return
+
+    # Because 1/3/5/15 minute labels overlap with timeframe,
+    # commands below provide guaranteed independent expiry selection.
 
     await update.message.reply_text(
-        "⌛ EXPIRY\n\n"
-        "Isticmaal:\n\n"
-        "/expiry 60\n"
-        "/expiry 180\n"
-        "/expiry 300\n"
-        "/expiry 600\n"
-        "/expiry 900"
+        "❓ Amarka lama fahmin.\n\n"
+        "Isticmaal menu-ga hoose.",
+        reply_markup=main_keyboard()
     )
 
 
@@ -871,601 +882,140 @@ async def expiry_menu(
 # EXPIRY COMMAND
 # =========================================================
 
-async def expiry_command(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def expiry_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
 
         await update.message.reply_text(
-            "❌ Tusaale:\n"
-            "/expiry 180"
+            "⌛ EXPIRY\n\n"
+            "/expiry 60  → 1 Minute\n"
+            "/expiry 180 → 3 Minutes\n"
+            "/expiry 300 → 5 Minutes\n"
+            "/expiry 600 → 10 Minutes\n"
+            "/expiry 900 → 15 Minutes"
         )
 
         return
 
     try:
 
-        value = int(
-            context.args[0]
-        )
-
-        allowed = [
-            60,
-            180,
-            300,
-            600,
-            900,
-        ]
-
-        if value not in allowed:
-            raise ValueError
-
-        settings = get_settings(
-            update.effective_user.id
-        )
-
-        settings["expiry"] = value
-
-        await update.message.reply_text(
-            "✅ EXPIRY LA DOORTAY\n\n"
-            f"⌛ {value} seconds",
-            reply_markup=main_keyboard(),
-        )
+        seconds = int(context.args[0])
 
     except Exception:
 
         await update.message.reply_text(
-            "❌ Expiry khalad ah.\n\n"
-            "60, 180, 300, 600 ama 900."
+            "❌ Geli tiro sax ah."
         )
 
+        return
 
-# =========================================================
-# SIGNAL
-# =========================================================
+    allowed = [60, 180, 300, 600, 900]
 
-async def signal_command(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
-    settings = get_settings(
-        update.effective_user.id
-    )
-
-    asset = settings["asset"]
-    timeframe = settings["timeframe"]
-    expiry = settings["expiry"]
-
-    await update.message.reply_text(
-        "⏳ SIGNAL...\n\n"
-        f"📊 Asset: {asset}\n"
-        f"⏱ Timeframe: {timeframe // 60} Minutes\n"
-        f"⌛ Expiry: {expiry // 60} minutes\n"
-        f"⏱ Higher TF: 5 Minutes"
-    )
-
-    try:
-
-        # =================================================
-        # MAIN TIMEFRAME CANDLES
-        # =================================================
-
-        candles = await get_candles(
-            asset,
-            timeframe,
-            CANDLE_COUNT,
-        )
-
-        df = candles_to_dataframe(
-            candles
-        )
-
-        if df.empty:
-
-            raise RuntimeError(
-                "Candle data lama akhrin karin."
-            )
-
-        if len(df) < 50:
-
-            raise RuntimeError(
-                f"Candles ku filan lama helin: {len(df)}"
-            )
-
-        # =================================================
-        # MAIN ANALYSIS
-        # =================================================
-
-        main = analyze_main(df)
-
-        # =================================================
-        # HIGHER TIMEFRAME
-        # =================================================
-
-        higher_candles = await get_candles(
-            asset,
-            HIGHER_TIMEFRAME,
-            CANDLE_COUNT,
-        )
-
-        higher_df = candles_to_dataframe(
-            higher_candles
-        )
-
-        if higher_df.empty:
-
-            higher_signal = "WAIT"
-            higher_candle_text = "No Data"
-
-        else:
-
-            (
-                higher_signal,
-                higher_candle_text,
-            ) = analyze_higher_timeframe(
-                higher_df
-            )
-
-        # =================================================
-        # FINAL CONFIRMATION
-        # =================================================
-
-        (
-            final_signal,
-            call_score,
-            put_score,
-        ) = final_confirmation(
-            main["trend"],
-            main["rsi_signal"],
-            main["current_candle"],
-            main["previous_candle"],
-            higher_signal,
-        )
-
-        # =================================================
-        # SIGNAL DISPLAY
-        # =================================================
-
-        if final_signal == "CALL":
-
-            signal_text = "🟢 CALL — STRONG CONFIRMATION"
-
-        elif final_signal == "PUT":
-
-            signal_text = "🔴 PUT — STRONG CONFIRMATION"
-
-        else:
-
-            signal_text = "⚪ WAIT — NO STRONG CONFIRMATION"
-
-        # =================================================
-        # RSI
-        # =================================================
-
-        rsi_value = main["rsi"]
-
-        if (
-            rsi_value is None
-            or pd.isna(rsi_value)
-        ):
-
-            rsi_text = "N/A"
-
-        else:
-
-            rsi_text = f"{rsi_value:.2f}"
-
-        # =================================================
-        # PRICE / MA
-        # =================================================
-
-        price = main["price"]
-        ma10 = main["ma10"]
-        ma50 = main["ma50"]
-
-        price_text = (
-            f"{price:.5f}"
-            if price is not None
-            else "N/A"
-        )
-
-        ma10_text = (
-            f"{ma10:.5f}"
-            if ma10 is not None
-            else "N/A"
-        )
-
-        ma50_text = (
-            f"{ma50:.5f}"
-            if ma50 is not None
-            else "N/A"
-        )
-
-        # =================================================
-        # CURRENT CANDLE TEXT
-        # =================================================
-
-        if main["current_candle"] == "CALL":
-
-            current_candle_text = "Bullish 🟢"
-
-        elif main["current_candle"] == "PUT":
-
-            current_candle_text = "Bearish 🔴"
-
-        else:
-
-            current_candle_text = "Doji ⚪"
-
-        # =================================================
-        # PREVIOUS CANDLE TEXT
-        # =================================================
-
-        if main["previous_candle"] == "CALL":
-
-            previous_candle_text = "Bullish 🟢"
-
-        elif main["previous_candle"] == "PUT":
-
-            previous_candle_text = "Bearish 🔴"
-
-        else:
-
-            previous_candle_text = "Doji ⚪"
-
-        # =================================================
-        # HIGHER TF TEXT
-        # =================================================
-
-        if higher_signal == "CALL":
-
-            higher_signal_text = "CALL 🟢"
-
-        elif higher_signal == "PUT":
-
-            higher_signal_text = "PUT 🔴"
-
-        else:
-
-            higher_signal_text = "WAIT ⚪"
-
-        # =================================================
-        # FINAL MESSAGE
-        # =================================================
-
-        message = (
-            "📊 LALAA24BOT SIGNAL\n\n"
-
-            f"💱 Asset: {asset}\n\n"
-
-            "📌 FINAL SIGNAL:\n"
-            f"{signal_text}\n\n"
-
-            "🔎 CONFIRMATION CHECK\n\n"
-
-            "📈 Trend — MA10 + MA50:\n"
-            f"{main['trend']}\n\n"
-
-            "📊 Momentum — RSI:\n"
-            f"{main['rsi_signal']} "
-            f"({'🟢' if main['rsi_signal'] == 'CALL' else '🔴' if main['rsi_signal'] == 'PUT' else '⚪'} "
-            f"(RSI {rsi_text}))\n\n"
-
-            "🕯 Candle confirmation:\n"
-            f"{main['current_candle']} "
-            f"({'🟢' if main['current_candle'] == 'CALL' else '🔴' if main['current_candle'] == 'PUT' else '⚪'})\n"
-            f"Current: {current_candle_text}\n\n"
-
-            "🔎 Previous candle confirmation:\n"
-            f"{main['previous_candle']} "
-            f"({'🟢' if main['previous_candle'] == 'CALL' else '🔴' if main['previous_candle'] == 'PUT' else '⚪'})\n"
-            f"Previous: {previous_candle_text}\n\n"
-
-            "⏱ Higher Timeframe confirmation:\n"
-            f"{higher_signal_text}\n"
-            "Higher TF: 5 Minutes\n"
-            f"Higher candle: {higher_candle_text} "
-            f"{'🟢' if higher_signal == 'CALL' else '🔴' if higher_signal == 'PUT' else '⚪'}\n\n"
-
-            "📊 CONFIRMATION RESULT\n"
-            f"🟢 CALL confirmations: {call_score}/5\n"
-            f"🔴 PUT confirmations: {put_score}/5\n\n"
-
-            f"💰 Price: {price_text}\n"
-            f"MA10: {ma10_text}\n"
-            f"MA50: {ma50_text}\n"
-            f"RSI: {rsi_text}\n\n"
-
-            f"⏱ Timeframe: {timeframe // 60}️⃣ "
-            f"{timeframe // 60} Minutes\n"
-            f"⌛ Expiry: {expiry // 60} minutes\n\n"
-
-            "⚠️ Signal-ku waa technical confirmation oo keliya.\n"
-            "⚠️ 95% win lama dammaanad qaadi karo."
-        )
+    if seconds not in allowed:
 
         await update.message.reply_text(
-            message,
-            reply_markup=main_keyboard(),
-        )
-
-    except Exception as exc:
-
-        logger.exception(
-            "SIGNAL ERROR"
-        )
-
-        await update.message.reply_text(
-            "❌ MARKET DATA ERROR\n\n"
-            f"Asset: {asset}\n"
-            f"Timeframe: {timeframe // 60} Minutes\n\n"
-            f"Faahfaahin: {exc}\n\n"
-            "ℹ️ Bot-ku signal been ah ma sameynayo.",
-            reply_markup=main_keyboard(),
-        )
-
-
-# =========================================================
-# MESSAGE HANDLER
-# =========================================================
-
-async def message_handler(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
-    if not update.message:
-        return
-
-    text = (
-        update.message.text or ""
-    ).strip()
-
-    upper = text.upper()
-
-    # -----------------------------------------------------
-    # SIGNAL BUTTON
-    # -----------------------------------------------------
-
-    if "SIGNAL" in upper:
-
-        await signal_command(
-            update,
-            context,
+            "❌ Expiry-ga la oggol yahay:\n\n"
+            "60\n"
+            "180\n"
+            "300\n"
+            "600\n"
+            "900"
         )
 
         return
 
-    # -----------------------------------------------------
-    # ASSETS BUTTON
-    # -----------------------------------------------------
-
-    if "ASSETS" in upper:
-
-        await assets_command(
-            update,
-            context,
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # TIMEFRAME BUTTON
-    # -----------------------------------------------------
-
-    if "TIMEFRAME" in upper:
-
-        await timeframe_menu(
-            update,
-            context,
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # EXPIRY BUTTON
-    # -----------------------------------------------------
-
-    if "EXPIRY" in upper:
-
-        await expiry_menu(
-            update,
-            context,
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # STATUS BUTTON
-    # -----------------------------------------------------
-
-    if "STATUS" in upper:
-
-        await status(
-            update,
-            context,
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # TIMEFRAME BUTTONS
-    # -----------------------------------------------------
-
-    timeframe_map = {
-        "1️⃣ 1 MINUTE": 60,
-        "3️⃣ 3 MINUTES": 180,
-        "5️⃣ 5 MINUTES": 300,
-        "15️⃣ 15 MINUTES": 900,
-        "30️⃣ 30 MINUTES": 1800,
-        "60️⃣ 1 HOUR": 3600,
-    }
-
-    if upper in timeframe_map:
-
-        settings = get_settings(
-            update.effective_user.id
-        )
-
-        settings["timeframe"] = (
-            timeframe_map[upper]
-        )
-
-        await update.message.reply_text(
-            "✅ TIMEFRAME LA DOORTAY\n\n"
-            f"⏱ {timeframe_map[upper] // 60} Minutes",
-            reply_markup=main_keyboard(),
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # ASSET SELECTION
-    # -----------------------------------------------------
-
-    if upper.startswith("ASSET "):
-
-        asset_name = text[6:].strip()
-
-        await select_asset(
-            update,
-            asset_name,
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # DEFAULT
-    # -----------------------------------------------------
-
-    await update.message.reply_text(
-        "🤖 NAASIRFX\n\n"
-        "Isticmaal:\n"
-        "📊 SIGNAL\n"
-        "📋 ASSETS\n"
-        "⏱ TIMEFRAME\n"
-        "⌛ EXPIRY\n"
-        "ℹ️ STATUS\n\n"
-        "Ama asset dooro:\n"
-        "ASSET EURUSD_otc",
-        reply_markup=main_keyboard(),
+    await set_expiry(
+        update,
+        seconds
     )
 
 
 # =========================================================
-# ERROR HANDLER
-# =========================================================
-
-async def error_handler(
-    update,
-    context,
-):
-
-    logger.exception(
-        "Telegram error: %s",
-        context.error,
-    )
-
-
-# =========================================================
-# MAIN
+# APPLICATION
 # =========================================================
 
 def main():
 
-    if not TELEGRAM_TOKEN:
+    if not TOKEN:
 
-        raise RuntimeError(
-            "TELEGRAM_BOT_TOKEN is missing."
-        )
+        print("ERROR: TELEGRAM_BOT_TOKEN is missing")
+        return
 
-    # Render health server
-    health_thread = Thread(
-        target=start_health_server,
-        daemon=True,
+    web_thread = Thread(
+        target=run_web_server,
+        daemon=True
     )
 
-    health_thread.start()
+    web_thread.start()
 
-    # Telegram application
     application = (
         Application.builder()
-        .token(TELEGRAM_TOKEN)
+        .token(TOKEN)
         .build()
     )
 
-    # Commands
     application.add_handler(
         CommandHandler(
             "start",
-            start,
+            start
         )
     )
 
     application.add_handler(
         CommandHandler(
             "status",
-            status,
+            status_command
         )
     )
 
     application.add_handler(
         CommandHandler(
             "signal",
-            signal_command,
+            signal_command
         )
     )
 
     application.add_handler(
         CommandHandler(
             "assets",
-            assets_command,
+            pairs_command
         )
     )
 
     application.add_handler(
         CommandHandler(
-            "timeframe",
-            timeframe_command,
+            "pairs",
+            pairs_command
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "asset",
+            asset_command
         )
     )
 
     application.add_handler(
         CommandHandler(
             "expiry",
-            expiry_command,
+            expiry_command
         )
     )
 
-    # Text messages/buttons
     application.add_handler(
         MessageHandler(
-            filters.TEXT
-            & ~filters.COMMAND,
-            message_handler,
+            filters.TEXT & ~filters.COMMAND,
+            text_handler
         )
     )
 
-    application.add_error_handler(
-        error_handler
-    )
-
-    logger.info(
-        "%s starting...",
-        BOT_NAME,
-    )
+    print("NaasirFx bot is running...")
 
     application.run_polling(
         drop_pending_updates=True
     )
 
-
-# =========================================================
-# RUN
-# =========================================================
 
 if __name__ == "__main__":
     main()
