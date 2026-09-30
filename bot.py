@@ -260,6 +260,113 @@ FOREX_OTC_PAIRS = {
 
 
 # =========================================================
+# STOCK COMPANY NAMES
+# =========================================================
+# API CODE -> TELEGRAM DISPLAY NAME
+#
+# API code lama ma beddelmayo.
+# Telegram-ka waxaa lagu tusayaa magaca company-ga.
+# =========================================================
+
+STOCK_NAMES = {
+
+    "#AAPL": "🍎 Apple",
+    "#AXP": "💳 American Express",
+    "#MCD": "🍔 McDonald's",
+    "#MSFT": "🟢 Microsoft",
+    "#META": "🔵 Meta",
+    "#AMZN": "🟠 Amazon",
+    "#TSLA": "🚗 Tesla",
+    "#NVDA": "🟢 NVIDIA",
+    "#KO": "🔴 Coca-Cola",
+    "#MA": "💳 Mastercard",
+    "#V": "💳 Visa",
+    "#GOOGL": "🔵 Google",
+    "#GOOG": "🔵 Google",
+    "#NFLX": "🎬 Netflix",
+    "#AMD": "🔴 AMD",
+    "#INTC": "🔵 Intel",
+    "#IBM": "🔵 IBM",
+    "#ORCL": "🔴 Oracle",
+    "#CRM": "☁️ Salesforce",
+    "#DIS": "🏰 Disney",
+    "#NKE": "👟 Nike",
+    "#PEP": "🥤 PepsiCo",
+    "#WMT": "🛒 Walmart",
+    "#JPM": "🏦 JPMorgan Chase",
+    "#BAC": "🏦 Bank of America",
+    "#C": "🏦 Citigroup",
+    "#GS": "🏦 Goldman Sachs",
+    "#XOM": "⛽ Exxon Mobil",
+    "#CVX": "⛽ Chevron",
+    "#BA": "✈️ Boeing",
+    "#PFE": "💊 Pfizer",
+    "#JNJ": "💊 Johnson & Johnson",
+    "#CSCO": "🌐 Cisco",
+    "#ADBE": "🎨 Adobe",
+    "#QCOM": "📱 Qualcomm",
+    "#UBER": "🚕 Uber",
+    "#PYPL": "💳 PayPal",
+    "#SHOP": "🛍 Shopify",
+    "#BABA": "🛒 Alibaba",
+    "#T": "📡 AT&T",
+    "#VZ": "📡 Verizon",
+}
+
+
+# =========================================================
+# STOCK OTC COMPANY NAMES
+# =========================================================
+# API CODE -> TELEGRAM DISPLAY NAME
+# =========================================================
+
+STOCK_OTC_NAMES = {
+
+    "#AAPL_otc": "🍎 Apple OTC",
+    "#AXP_otc": "💳 American Express OTC",
+    "#MCD_otc": "🍔 McDonald's OTC",
+    "#MSFT_otc": "🟢 Microsoft OTC",
+    "#META_otc": "🔵 Meta OTC",
+    "#AMZN_otc": "🟠 Amazon OTC",
+    "#TSLA_otc": "🚗 Tesla OTC",
+    "#NVDA_otc": "🟢 NVIDIA OTC",
+    "#KO_otc": "🔴 Coca-Cola OTC",
+    "#MA_otc": "💳 Mastercard OTC",
+    "#V_otc": "💳 Visa OTC",
+    "#GOOGL_otc": "🔵 Google OTC",
+    "#GOOG_otc": "🔵 Google OTC",
+    "#NFLX_otc": "🎬 Netflix OTC",
+    "#AMD_otc": "🔴 AMD OTC",
+    "#INTC_otc": "🔵 Intel OTC",
+    "#IBM_otc": "🔵 IBM OTC",
+    "#ORCL_otc": "🔴 Oracle OTC",
+    "#CRM_otc": "☁️ Salesforce OTC",
+    "#DIS_otc": "🏰 Disney OTC",
+    "#NKE_otc": "👟 Nike OTC",
+    "#PEP_otc": "🥤 PepsiCo OTC",
+    "#WMT_otc": "🛒 Walmart OTC",
+    "#JPM_otc": "🏦 JPMorgan Chase OTC",
+    "#BAC_otc": "🏦 Bank of America OTC",
+    "#C_otc": "🏦 Citigroup OTC",
+    "#GS_otc": "🏦 Goldman Sachs OTC",
+    "#XOM_otc": "⛽ Exxon Mobil OTC",
+    "#CVX_otc": "⛽ Chevron OTC",
+    "#BA_otc": "✈️ Boeing OTC",
+    "#PFE_otc": "💊 Pfizer OTC",
+    "#JNJ_otc": "💊 Johnson & Johnson OTC",
+    "#CSCO_otc": "🌐 Cisco OTC",
+    "#ADBE_otc": "🎨 Adobe OTC",
+    "#QCOM_otc": "📱 Qualcomm OTC",
+    "#UBER_otc": "🚕 Uber OTC",
+    "#PYPL_otc": "💳 PayPal OTC",
+    "#SHOP_otc": "🛍 Shopify OTC",
+    "#BABA_otc": "🛒 Alibaba OTC",
+    "#T_otc": "📡 AT&T OTC",
+    "#VZ_otc": "📡 Verizon OTC",
+}
+
+
+# =========================================================
 # STOCKS
 # =========================================================
 
@@ -269,21 +376,34 @@ def get_stock_assets():
 
     try:
 
-        for item in ASSETS:
+        available_assets = {
+            str(item)
+            for item in ASSETS
+        }
 
-            asset = str(item)
+        # Marka hore company names-ka aan rabno
+        # kaliya haddii API catalog-ku leeyahay code-ka.
+        for code, name in STOCK_NAMES.items():
 
-            # Stock OTC looma gelinayo qaybta Stocks
+            if code in available_assets:
+
+                stocks[name] = code
+
+        # Haddii ASSETS leeyahay stock kale oo aan
+        # mapping-ka kore ku jirin, ha lumin.
+        # Waxaa loo tusi doonaa ticker-ka API-ga.
+        for asset in sorted(available_assets):
+
+            if not asset.startswith("#"):
+                continue
+
             if asset.lower().endswith("_otc"):
                 continue
 
-            # Pocket Option stock symbols sida:
-            # #TSLA
-            # #XOM
-            # #AAPL
-            if asset.startswith("#"):
+            if asset in STOCK_NAMES:
+                continue
 
-                stocks[asset] = asset
+            stocks[asset] = asset
 
     except Exception as e:
 
@@ -294,7 +414,10 @@ def get_stock_assets():
         )
 
     return dict(
-        sorted(stocks.items())
+        sorted(
+            stocks.items(),
+            key=lambda x: x[0].lower()
+        )
     )
 
 
@@ -308,43 +431,33 @@ def get_stock_otc_assets():
 
     try:
 
-        for item in ASSETS:
+        available_assets = {
+            str(item)
+            for item in ASSETS
+        }
 
-            asset = str(item)
+        # Company names-ka OTC
+        # kaliya haddii API catalog-ku leeyahay code-ka.
+        for code, name in STOCK_OTC_NAMES.items():
 
-            # Stock OTC badanaa waxay leeyihiin _otc
-            if asset.lower().endswith("_otc"):
+            if code in available_assets:
 
-                # Ka fogow Forex OTC
-                forex_prefixes = (
-                    "EUR",
-                    "GBP",
-                    "USD",
-                    "AUD",
-                    "NZD",
-                    "CAD",
-                    "CHF",
-                    "NGN",
-                    "ZAR",
-                    "KES",
-                    "YER",
-                    "TND",
-                    "MAD",
-                    "UAH",
-                    "AED",
-                    "BHD",
-                    "JOD",
-                    "OMR",
-                    "QAR",
-                    "SAR",
-                )
+                stocks_otc[name] = code
 
-                clean_asset = asset.lstrip("#")
+        # Stock OTC kale oo catalog-ka ku jira
+        # laakiin aan mapping-ka kore ku jirin.
+        for asset in sorted(available_assets):
 
-                if not clean_asset.upper().startswith(
-                    forex_prefixes
-                ):
-                    stocks_otc[asset] = asset
+            if not asset.startswith("#"):
+                continue
+
+            if not asset.lower().endswith("_otc"):
+                continue
+
+            if asset in STOCK_OTC_NAMES:
+                continue
+
+            stocks_otc[asset] = asset
 
     except Exception as e:
 
@@ -355,7 +468,10 @@ def get_stock_otc_assets():
         )
 
     return dict(
-        sorted(stocks_otc.items())
+        sorted(
+            stocks_otc.items(),
+            key=lambda x: x[0].lower()
+        )
     )
 
 
