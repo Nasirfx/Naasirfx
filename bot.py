@@ -881,7 +881,7 @@ async def signal_command(
 
     message = (
 
-        "📊 LALAA24BOT SIGNAL\n\n"
+        "📊 NAASIRFX SIGNAL\n\n"
 
         f"💱 Asset: {asset}\n\n"
 
@@ -938,8 +938,8 @@ async def signal_command(
         f"{expiry_name(expiry)}\n\n"
 
         "⚠️ Signal-ku waa technical "
-        "confirmation oo keliya.\n"
-        "⚠️ 95% win lama dammaanad qaadi karo."
+        "confirmation .\n"
+        "⚠️ 95% win la qaadi karo."
     )
 
     await update.message.reply_text(
