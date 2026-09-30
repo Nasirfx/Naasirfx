@@ -262,11 +262,6 @@ FOREX_OTC_PAIRS = {
 # =========================================================
 # STOCK COMPANY NAMES
 # =========================================================
-# API CODE -> TELEGRAM DISPLAY NAME
-#
-# API code lama ma beddelmayo.
-# Telegram-ka waxaa lagu tusayaa magaca company-ga.
-# =========================================================
 
 STOCK_NAMES = {
 
@@ -316,8 +311,6 @@ STOCK_NAMES = {
 
 # =========================================================
 # STOCK OTC COMPANY NAMES
-# =========================================================
-# API CODE -> TELEGRAM DISPLAY NAME
 # =========================================================
 
 STOCK_OTC_NAMES = {
@@ -381,17 +374,11 @@ def get_stock_assets():
             for item in ASSETS
         }
 
-        # Marka hore company names-ka aan rabno
-        # kaliya haddii API catalog-ku leeyahay code-ka.
         for code, name in STOCK_NAMES.items():
 
             if code in available_assets:
-
                 stocks[name] = code
 
-        # Haddii ASSETS leeyahay stock kale oo aan
-        # mapping-ka kore ku jirin, ha lumin.
-        # Waxaa loo tusi doonaa ticker-ka API-ga.
         for asset in sorted(available_assets):
 
             if not asset.startswith("#"):
@@ -436,16 +423,11 @@ def get_stock_otc_assets():
             for item in ASSETS
         }
 
-        # Company names-ka OTC
-        # kaliya haddii API catalog-ku leeyahay code-ka.
         for code, name in STOCK_OTC_NAMES.items():
 
             if code in available_assets:
-
                 stocks_otc[name] = code
 
-        # Stock OTC kale oo catalog-ka ku jira
-        # laakiin aan mapping-ka kore ku jirin.
         for asset in sorted(available_assets):
 
             if not asset.startswith("#"):
@@ -1139,6 +1121,767 @@ async def status_command(
 
 
 # =========================================================
+# ASSET NORMALIZATION
+# =========================================================
+
+def normalize_asset_name(value):
+
+    if value is None:
+        return ""
+
+    return str(value).strip().lower().replace(
+        " ",
+        ""
+    )
+
+
+def collect_asset_strings(value):
+
+    found = []
+
+    if value is None:
+        return found
+
+    if isinstance(value, str):
+
+        found.append(value)
+
+        return found
+
+    if isinstance(value, dict):
+
+        preferred_keys = [
+            "symbol",
+            "asset",
+            "name",
+            "ticker",
+            "id",
+            "code",
+        ]
+
+        for key in preferred_keys:
+
+            if key in value:
+
+                item = value.get(key)
+
+                if isinstance(item, str):
+                    found.append(item)
+
+        for key in (
+            "raw",
+            "data",
+            "asset",
+            "symbol",
+        ):
+
+            if key in value:
+
+                found.extend(
+                    collect_asset_strings(
+                        value.get(key)
+                    )
+                )
+
+        return found
+
+    if isinstance(value, (list, tuple, set)):
+
+        for item in value:
+
+            found.extend(
+                collect_asset_strings(
+                    item
+                )
+            )
+
+        return found
+
+    for attr in (
+        "symbol",
+        "asset",
+        "name",
+        "ticker",
+        "id",
+        "code",
+    ):
+
+        try:
+
+            item = getattr(
+                value,
+                attr,
+                None
+            )
+
+            if isinstance(item, str):
+                found.append(item)
+
+        except Exception:
+            pass
+
+    return found
+
+
+# =========================================================
+# LIVE ASSET RESOLVER
+# =========================================================
+
+async def get_live_assets(client):
+
+    try:
+
+        method = getattr(
+            client,
+            "get_assets",
+            None
+        )
+
+        if not callable(method):
+
+            print(
+                "LIVE ASSETS: get_assets() not available",
+                flush=True
+            )
+
+            return []
+
+        result = await method()
+
+        assets = collect_asset_strings(
+            result
+        )
+
+        unique = []
+        seen = set()
+
+        for asset in assets:
+
+            asset = str(asset).strip()
+
+            if not asset:
+                continue
+
+            key = normalize_asset_name(
+                asset
+            )
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+
+            unique.append(asset)
+
+        print(
+            f"LIVE ASSETS: {len(unique)} found",
+            flush=True
+        )
+
+        return unique
+
+    except Exception as e:
+
+        print(
+            "LIVE ASSETS ERROR:",
+            e,
+            flush=True
+        )
+
+        return []
+
+
+# =========================================================
+# BUILD ASSET CANDIDATES
+# =========================================================
+
+def build_asset_candidates(
+    requested_asset,
+    live_assets
+):
+
+    requested = str(
+        requested_asset
+    ).strip()
+
+    candidates = []
+
+    def add(value):
+
+        if value is None:
+            return
+
+        value = str(
+            value
+        ).strip()
+
+        if not value:
+            return
+
+        if value not in candidates:
+            candidates.append(value)
+
+    # Original first
+    add(requested)
+
+    # Case variants
+    add(requested.upper())
+    add(requested.lower())
+
+    # OTC variants
+    if requested.lower().endswith(
+        "_otc"
+    ):
+
+        base = requested[
+            :-4
+        ]
+
+        add(
+            base + "_otc"
+        )
+
+        add(
+            base.upper() + "_otc"
+        )
+
+        add(
+            base.lower() + "_otc"
+        )
+
+    # Match exact live asset ignoring case
+    requested_normalized = normalize_asset_name(
+        requested
+    )
+
+    for live in live_assets:
+
+        if normalize_asset_name(
+            live
+        ) == requested_normalized:
+
+            add(live)
+
+    # Match without harmless separators
+    compact_requested = (
+        requested_normalized
+        .replace("_", "")
+        .replace("/", "")
+        .replace("-", "")
+    )
+
+    for live in live_assets:
+
+        compact_live = (
+            normalize_asset_name(live)
+            .replace("_", "")
+            .replace("/", "")
+            .replace("-", "")
+        )
+
+        if compact_live == compact_requested:
+
+            add(live)
+
+    # For OTC symbols, match base symbol carefully.
+    # Example:
+    # EURUSD_otc -> EURUSD_otc
+    # SARCNY_otc -> SARCNY_otc
+    if requested.lower().endswith(
+        "_otc"
+    ):
+
+        base = requested[
+            :-4
+        ]
+
+        compact_base = (
+            normalize_asset_name(base)
+            .replace("_", "")
+            .replace("/", "")
+            .replace("-", "")
+        )
+
+        for live in live_assets:
+
+            live_lower = normalize_asset_name(
+                live
+            )
+
+            if not live_lower.endswith(
+                "_otc"
+            ):
+                continue
+
+            live_base = live_lower[
+                :-4
+            ]
+
+            live_base = (
+                live_base
+                .replace("_", "")
+                .replace("/", "")
+                .replace("-", "")
+            )
+
+            if live_base == compact_base:
+
+                add(live)
+
+    return candidates
+
+
+# =========================================================
+# CANDLE OBJECT TO ROW
+# =========================================================
+
+def candle_to_row(candle):
+
+    try:
+
+        if isinstance(
+            candle,
+            dict
+        ):
+
+            open_value = (
+                candle.get("open")
+                if "open" in candle
+                else candle.get("o")
+            )
+
+            high_value = (
+                candle.get("high")
+                if "high" in candle
+                else candle.get("h")
+            )
+
+            low_value = (
+                candle.get("low")
+                if "low" in candle
+                else candle.get("l")
+            )
+
+            close_value = (
+                candle.get("close")
+                if "close" in candle
+                else candle.get("c")
+            )
+
+        else:
+
+            open_value = getattr(
+                candle,
+                "open",
+                getattr(
+                    candle,
+                    "o",
+                    None
+                )
+            )
+
+            high_value = getattr(
+                candle,
+                "high",
+                getattr(
+                    candle,
+                    "h",
+                    None
+                )
+            )
+
+            low_value = getattr(
+                candle,
+                "low",
+                getattr(
+                    candle,
+                    "l",
+                    None
+                )
+            )
+
+            close_value = getattr(
+                candle,
+                "close",
+                getattr(
+                    candle,
+                    "c",
+                    None
+                )
+            )
+
+        if any(
+            value is None
+            for value in (
+                open_value,
+                high_value,
+                low_value,
+                close_value,
+            )
+        ):
+            return None
+
+        return {
+
+            "open": float(
+                open_value
+            ),
+
+            "high": float(
+                high_value
+            ),
+
+            "low": float(
+                low_value
+            ),
+
+            "close": float(
+                close_value
+            ),
+
+        }
+
+    except Exception:
+
+        return None
+
+
+# =========================================================
+# CONVERT CANDLES
+# =========================================================
+
+def candles_to_dataframe(candles):
+
+    if candles is None:
+        return None
+
+    # DataFrame directly
+    if isinstance(
+        candles,
+        pd.DataFrame
+    ):
+
+        df = candles.copy()
+
+        rename_map = {}
+
+        for column in df.columns:
+
+            lower = str(
+                column
+            ).lower()
+
+            if lower == "o":
+                rename_map[column] = "open"
+
+            elif lower == "h":
+                rename_map[column] = "high"
+
+            elif lower == "l":
+                rename_map[column] = "low"
+
+            elif lower == "c":
+                rename_map[column] = "close"
+
+        if rename_map:
+
+            df = df.rename(
+                columns=rename_map
+            )
+
+        required = [
+            "open",
+            "high",
+            "low",
+            "close",
+        ]
+
+        if not all(
+            column in df.columns
+            for column in required
+        ):
+            return None
+
+        for column in required:
+
+            df[column] = pd.to_numeric(
+                df[column],
+                errors="coerce"
+            )
+
+        df = df.dropna(
+            subset=required
+        )
+
+        if len(df) < 20:
+            return None
+
+        return df[
+            required
+        ].reset_index(
+            drop=True
+        )
+
+    # Dict containing candle list
+    if isinstance(
+        candles,
+        dict
+    ):
+
+        for key in (
+            "candles",
+            "data",
+            "result",
+            "rows",
+        ):
+
+            if key in candles:
+
+                result = candles_to_dataframe(
+                    candles[key]
+                )
+
+                if result is not None:
+                    return result
+
+    # Normal list / tuple
+    if isinstance(
+        candles,
+        (list, tuple)
+    ):
+
+        rows = []
+
+        for candle in candles:
+
+            row = candle_to_row(
+                candle
+            )
+
+            if row is not None:
+
+                rows.append(row)
+
+        if len(rows) < 20:
+            return None
+
+        return pd.DataFrame(
+            rows
+        ).reset_index(
+            drop=True
+        )
+
+    # Single object / iterable
+    try:
+
+        rows = []
+
+        for candle in candles:
+
+            row = candle_to_row(
+                candle
+            )
+
+            if row is not None:
+                rows.append(row)
+
+        if len(rows) >= 20:
+
+            return pd.DataFrame(
+                rows
+            ).reset_index(
+                drop=True
+            )
+
+    except Exception:
+        pass
+
+    return None
+
+
+# =========================================================
+# TRY STANDARD GET CANDLES
+# =========================================================
+
+async def try_get_candles(
+    client,
+    asset,
+    timeframe,
+    count
+):
+
+    method = getattr(
+        client,
+        "get_candles",
+        None
+    )
+
+    if not callable(method):
+        return None
+
+    attempts = [
+        (
+            asset,
+            timeframe,
+            count
+        ),
+        (
+            asset,
+            timeframe,
+            max(
+                count,
+                150
+            )
+        ),
+        (
+            asset,
+            timeframe,
+            max(
+                count,
+                200
+            )
+        ),
+    ]
+
+    for args in attempts:
+
+        try:
+
+            print(
+                "CANDLE TRY:",
+                args,
+                flush=True
+            )
+
+            result = await method(
+                *args
+            )
+
+            df = candles_to_dataframe(
+                result
+            )
+
+            if df is not None:
+
+                print(
+                    f"CANDLE SUCCESS: "
+                    f"{asset} "
+                    f"{timeframe}s "
+                    f"{len(df)} candles",
+                    flush=True
+                )
+
+                return df
+
+        except Exception as e:
+
+            print(
+                "GET_CANDLES ATTEMPT ERROR:",
+                asset,
+                timeframe,
+                repr(e),
+                flush=True
+            )
+
+            await asyncio.sleep(
+                0.5
+            )
+
+    return None
+
+
+# =========================================================
+# TRY DATAFRAME API
+# =========================================================
+
+async def try_get_candles_dataframe(
+    client,
+    asset,
+    timeframe,
+    count
+):
+
+    method = getattr(
+        client,
+        "get_candles_dataframe",
+        None
+    )
+
+    if not callable(method):
+        return None
+
+    attempts = [
+        (
+            asset,
+            timeframe,
+            count
+        ),
+        (
+            asset,
+            timeframe,
+            max(
+                count,
+                150
+            )
+        ),
+        (
+            asset,
+            timeframe,
+            max(
+                count,
+                200
+            )
+        ),
+    ]
+
+    for args in attempts:
+
+        try:
+
+            print(
+                "DATAFRAME TRY:",
+                args,
+                flush=True
+            )
+
+            result = await method(
+                *args
+            )
+
+            df = candles_to_dataframe(
+                result
+            )
+
+            if df is not None:
+
+                print(
+                    f"DATAFRAME SUCCESS: "
+                    f"{asset} "
+                    f"{timeframe}s "
+                    f"{len(df)} candles",
+                    flush=True
+                )
+
+                return df
+
+        except Exception as e:
+
+            print(
+                "DATAFRAME ATTEMPT ERROR:",
+                asset,
+                timeframe,
+                repr(e),
+                flush=True
+            )
+
+            await asyncio.sleep(
+                0.5
+            )
+
+    return None
+
+
+# =========================================================
 # GET CANDLES
 # =========================================================
 
@@ -1153,6 +1896,13 @@ async def get_candles(
     try:
 
         if not POCKET_SSID:
+
+            print(
+                "CANDLE ERROR: "
+                "POCKET_OPTION_SSID missing",
+                flush=True
+            )
+
             return None
 
         client = AsyncPocketOptionClient(
@@ -1160,91 +1910,97 @@ async def get_candles(
             is_demo=True
         )
 
+        print(
+            f"CONNECTING TO POCKET OPTION "
+            f"FOR {asset}...",
+            flush=True
+        )
+
         result = await client.connect()
 
         if not result:
+
+            print(
+                "POCKET OPTION CONNECTION FAILED",
+                flush=True
+            )
+
             return None
 
-        candles = await client.get_candles(
+        print(
+            "POCKET OPTION CONNECTED",
+            flush=True
+        )
+
+        # -------------------------------------------------
+        # LIVE ASSET CATALOG
+        # -------------------------------------------------
+
+        live_assets = await get_live_assets(
+            client
+        )
+
+        candidates = build_asset_candidates(
             asset,
-            timeframe,
-            count
+            live_assets
         )
 
-        if not candles:
-            return None
-
-        rows = []
-
-        for candle in candles:
-
-            try:
-
-                if hasattr(
-                    candle,
-                    "open"
-                ):
-
-                    rows.append({
-
-                        "open": float(
-                            candle.open
-                        ),
-
-                        "high": float(
-                            candle.high
-                        ),
-
-                        "low": float(
-                            candle.low
-                        ),
-
-                        "close": float(
-                            candle.close
-                        ),
-
-                    })
-
-                elif isinstance(
-                    candle,
-                    dict
-                ):
-
-                    rows.append({
-
-                        "open": float(
-                            candle["open"]
-                        ),
-
-                        "high": float(
-                            candle["high"]
-                        ),
-
-                        "low": float(
-                            candle["low"]
-                        ),
-
-                        "close": float(
-                            candle["close"]
-                        ),
-
-                    })
-
-            except Exception:
-                continue
-
-        if len(rows) < 20:
-            return None
-
-        return pd.DataFrame(
-            rows
+        print(
+            "ASSET CANDIDATES:",
+            candidates,
+            flush=True
         )
+
+        # -------------------------------------------------
+        # TRY EACH RESOLVED ASSET
+        # -------------------------------------------------
+
+        for candidate in candidates:
+
+            # ---------------------------------------------
+            # METHOD 1
+            # ---------------------------------------------
+
+            df = await try_get_candles(
+                client,
+                candidate,
+                timeframe,
+                count
+            )
+
+            if df is not None:
+
+                return df
+
+            # ---------------------------------------------
+            # METHOD 2
+            # ---------------------------------------------
+
+            df = await try_get_candles_dataframe(
+                client,
+                candidate,
+                timeframe,
+                count
+            )
+
+            if df is not None:
+
+                return df
+
+        print(
+            f"ALL CANDLE METHODS FAILED: "
+            f"{asset} "
+            f"{timeframe}s",
+            flush=True
+        )
+
+        return None
 
     except Exception as e:
 
         print(
             "CANDLE ERROR:",
-            e,
+            repr(e),
             flush=True
         )
 
@@ -1255,10 +2011,21 @@ async def get_candles(
         try:
 
             if client:
+
                 await client.disconnect()
 
-        except Exception:
-            pass
+                print(
+                    "POCKET OPTION DISCONNECTED",
+                    flush=True
+                )
+
+        except Exception as e:
+
+            print(
+                "DISCONNECT ERROR:",
+                repr(e),
+                flush=True
+            )
 
 
 # =========================================================
@@ -1792,9 +2559,7 @@ def main():
     application.run_polling(
         drop_pending_updates=True
     )
-
-
-# =========================================================
+    # =========================================================
 # START APPLICATION
 # =========================================================
 
