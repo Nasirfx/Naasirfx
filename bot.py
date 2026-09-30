@@ -44,10 +44,6 @@ CANDLE_COUNT = 100
 # =========================================================
 # FIX OLD ASSET CATALOG
 # =========================================================
-# Qaar ka mid ah versions-ka pocketoptionapi_async
-# ma hayaan CNY OTC assets-ka ASSETS catalog-ga.
-# Waxaan ku daray IDs-ka saxda ah halkan.
-# Tani ma beddelayso Pocket Option SSID ama signal logic.
 
 CNY_OTC_ASSETS = {
     "AEDCNY_otc": 538,
@@ -60,7 +56,9 @@ CNY_OTC_ASSETS = {
 
 try:
     if isinstance(ASSETS, dict):
+
         for asset_name, asset_id in CNY_OTC_ASSETS.items():
+
             ASSETS.setdefault(
                 asset_name,
                 asset_id
@@ -73,6 +71,7 @@ try:
         )
 
 except Exception as e:
+
     print(
         "CNY ASSET LOAD ERROR:",
         repr(e),
@@ -1710,14 +1709,6 @@ async def get_candles(
             flush=True
         )
 
-        # -------------------------------------------------
-        # Important:
-        # CNY assets were added to ASSETS above.
-        # Therefore the normal API call can now validate
-        # AEDCNY_otc, BHDCNY_otc, JODCNY_otc, OMRCNY_otc,
-        # QARCNY_otc and SARCNY_otc.
-        # -------------------------------------------------
-
         print(
             "CANDLE TRY:",
             asset,
@@ -1934,6 +1925,51 @@ def higher_timeframe_for(
 
 
 # =========================================================
+# SUPPORT & RESISTANCE
+# =========================================================
+
+def calculate_support_resistance(
+    df,
+    lookback=20
+):
+
+    try:
+
+        if df is None:
+            return None, None
+
+        if len(df) < 5:
+            return None, None
+
+        window = df.tail(
+            min(
+                lookback,
+                len(df)
+            )
+        )
+
+        support = float(
+            window["low"].min()
+        )
+
+        resistance = float(
+            window["high"].max()
+        )
+
+        return support, resistance
+
+    except Exception as e:
+
+        print(
+            "SUPPORT/RESISTANCE ERROR:",
+            repr(e),
+            flush=True
+        )
+
+        return None, None
+
+
+# =========================================================
 # SIGNAL ANALYSIS
 # =========================================================
 
@@ -2001,6 +2037,17 @@ async def analyze_signal(
 
     rsi = float(
         latest["RSI"]
+    )
+
+    # -----------------------------------------------------
+    # SUPPORT & RESISTANCE
+    # -----------------------------------------------------
+
+    support, resistance = (
+        calculate_support_resistance(
+            df,
+            lookback=20
+        )
     )
 
     # -----------------------------------------------------
@@ -2198,6 +2245,12 @@ async def analyze_signal(
         "rsi":
             rsi,
 
+        "support":
+            support,
+
+        "resistance":
+            resistance,
+
         "higher_tf":
             higher_tf,
 
@@ -2280,6 +2333,84 @@ async def signal_command(
         "final_emoji"
     ]
 
+    # -----------------------------------------------------
+    # SUPPORT / RESISTANCE DISPLAY
+    # -----------------------------------------------------
+
+    support = result.get(
+        "support"
+    )
+
+    resistance = result.get(
+        "resistance"
+    )
+
+    if support is not None:
+
+        support_text = format_price(
+            support
+        )
+
+    else:
+
+        support_text = "N/A"
+
+    if resistance is not None:
+
+        resistance_text = format_price(
+            resistance
+        )
+
+    else:
+
+        resistance_text = "N/A"
+
+    # -----------------------------------------------------
+    # DISTANCE FROM PRICE
+    # -----------------------------------------------------
+
+    price = result["price"]
+
+    if support is not None:
+
+        support_distance = abs(
+            price - support
+        )
+
+    else:
+
+        support_distance = None
+
+    if resistance is not None:
+
+        resistance_distance = abs(
+            resistance - price
+        )
+
+    else:
+
+        resistance_distance = None
+
+    if support_distance is not None:
+
+        support_distance_text = format_price(
+            support_distance
+        )
+
+    else:
+
+        support_distance_text = "N/A"
+
+    if resistance_distance is not None:
+
+        resistance_distance_text = format_price(
+            resistance_distance
+        )
+
+    else:
+
+        resistance_distance_text = "N/A"
+
     await message.edit_text(
 
         "📊 NAASIRFX SIGNAL\n\n"
@@ -2316,6 +2447,20 @@ async def signal_command(
         f"📊 PUT confirmations: "
         f"{result['put_count']}/5\n\n"
 
+        "📊 SUPPORT & RESISTANCE\n\n"
+
+        f"🟢 Support: "
+        f"{support_text}\n"
+
+        f"🔴 Resistance: "
+        f"{resistance_text}\n\n"
+
+        f"📏 Distance to Support: "
+        f"{support_distance_text}\n"
+
+        f"📏 Distance to Resistance: "
+        f"{resistance_distance_text}\n\n"
+
         f"💰 Price: "
         f"{format_price(result['price'])}\n"
 
@@ -2323,7 +2468,10 @@ async def signal_command(
         f"{format_price(result['ma10'])}\n"
 
         f"MA50: "
-        f"{format_price(result['ma50'])}\n\n"
+        f"{format_price(result['ma50'])}\n"
+
+        f"RSI: "
+        f"{result['rsi']:.2f}\n\n"
 
         f"⏱ Timeframe: "
         f"{timeframe_name(timeframe)}\n"
@@ -2332,7 +2480,9 @@ async def signal_command(
         f"{expiry_name(expiry)}\n\n"
 
         "⚠️ DEMO / SIGNAL ONLY\n"
-        "⚠️ Auto-trading ma jiro."
+        "⚠️ Auto-trading ma jiro.\n"
+        "⚠️ Technical confirmation only; "
+        "win-rate lama dammaanad qaadi karo."
     )
 
 
