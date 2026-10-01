@@ -578,9 +578,9 @@ def get_asset_variants(
 # =========================================================
 
 async def connect_client():
+async def connect_client():
 
     if not PO_SSID:
-
         raise RuntimeError(
             "POCKET_OPTION_SSID / PO_SSID lama helin."
         )
@@ -597,36 +597,55 @@ async def connect_client():
 
     client = AsyncPocketOptionClient(
         PO_SSID,
-        is_demo=IS_DEMO,
-        enable_logging=False
+        is_demo=True,
+        enable_logging=True
     )
 
     try:
 
-        result = await asyncio.wait_for(
+        await asyncio.wait_for(
             client.connect(),
             timeout=CONNECT_TIMEOUT
         )
 
         print(
-            f"🟢 PO CONNECT RESULT: {result!r}",
+            "🟢 PO CONNECT: SUCCESS",
             flush=True
         )
-
-        if result is False:
-
-            raise RuntimeError(
-                "Pocket Option connection failed."
-            )
 
         return client
 
     except asyncio.TimeoutError:
 
+        print(
+            "🔴 PO CONNECT: TIMEOUT",
+            flush=True
+        )
+
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+
         raise RuntimeError(
             f"Pocket Option connection timeout "
             f"({CONNECT_TIMEOUT}s)."
         )
+
+    except Exception as e:
+
+        print(
+            "🔴 PO CONNECT ERROR:",
+            repr(e),
+            flush=True
+        )
+
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+
+        raise
 
 
 # =========================================================
