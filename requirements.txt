@@ -5,4 +5,3 @@ google-genai
 tzlocal
 backoff
 numpy
-websockets==11.0.3
