@@ -533,8 +533,8 @@ async def get_signal(asset_code,timeframe,timeframe_name,expiry_name,display_ass
                 f"⌛ Expiry: {expiry_name}\n\n"
                 "⚠️ SIGNAL ONLY\n"
                 "━━━━━━━━━━━━━━━━━━━━"
-                )
-if len(df)<55:
+            )
+        if len(df)<55:
             return (
                 "━━━━━━━━━━━━━━━━━━━━\n"
                 "🤖 NAASIRFX AI SIGNAL\n"
