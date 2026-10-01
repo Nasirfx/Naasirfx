@@ -28,10 +28,7 @@ from pocketoptionapi_async import AsyncPocketOptionClient
 # GEMINI
 # =========================================================
 
-try:
-    from google import genai
-except Exception:
-    genai = None
+
 
 
 # =========================================================
