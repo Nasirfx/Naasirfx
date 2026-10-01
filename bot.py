@@ -578,7 +578,6 @@ def get_asset_variants(
 # =========================================================
 
 async def connect_client():
-async def connect_client():
 
     if not PO_SSID:
         raise RuntimeError(
