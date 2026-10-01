@@ -4,4 +4,4 @@ websockets>=12
 tzlocal
 backoff
 numpy
-google-genai
+pocketoptionapi-async==2.0.1
