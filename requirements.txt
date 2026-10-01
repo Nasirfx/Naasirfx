@@ -1,7 +1,7 @@
 python-telegram-bot
 pandas
-websockets==11.0
+websockets>=12
 tzlocal
 backoff
 numpy
-pocketoptionapi-async
+google-genai
