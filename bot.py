@@ -1067,7 +1067,7 @@ async def ask_gemini(
 
         return "ERROR"
 
-    if genai is None:
+
 
         print(
             "AI ERROR: google-genai missing",
