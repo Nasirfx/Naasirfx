@@ -1283,7 +1283,32 @@ WAIT
 
         return "ERROR"
 
-Muhiim: "if genai is None:" qaybtii hore ee aad sheegtay sidoo kale waa inay meesha ka baxdaa. "genai" hadda gabi ahaanba ma isticmaaleyno.
+        answer = text.strip().upper()
+
+        if re.search(
+            r"\bBUY\b",
+            answer
+        ):
+
+            return "BUY"
+
+        if re.search(
+            r"\bSELL\b",
+            answer
+        ):
+
+            return "SELL"
+
+        if re.search(
+            r"\bWAIT\b",
+            answer
+        ):
+
+            return "WAIT"
+
+        return "ERROR"
+
+Muhiim: "" qaybtii hore ee aad sheegtay sidoo kale waa inay meesha ka baxdaa. "genai" hadda gabi ahaanba ma isticmaaleyno.
 
 Kadib Commit → Deploy.
 
