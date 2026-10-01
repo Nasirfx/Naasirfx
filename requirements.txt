@@ -1,6 +1,6 @@
 python-telegram-bot
 pandas
-websockets>=12
+websockets==11.0
 tzlocal
 backoff
 numpy
