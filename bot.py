@@ -1191,67 +1191,103 @@ WAIT
 
         def call_ai():
 
-    import requests
+            import requests
 
-    url = (
-        "https://generativelanguage.googleapis.com/"
-        "v1beta/models/"
-        f"{AI_MODEL}:generateContent"
-    )
+            url = (
+                "https://generativelanguage.googleapis.com/"
+                "v1beta/models/"
+                f"{AI_MODEL}:generateContent"
+            )
 
-    headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY
-    }
+            headers = {
+                "Content-Type": "application/json",
+                "x-goog-api-key": GEMINI_API_KEY
+            }
 
-    payload = {
-        "contents": [
-            {
-                "parts": [
+            payload = {
+                "contents": [
                     {
-                        "text": prompt
+                        "parts": [
+                            {
+                                "text": prompt
+                            }
+                        ]
                     }
                 ]
             }
-        ]
-    }
 
-    response = requests.post(
-        url,
-        headers=headers,
-        json=payload,
-        timeout=30
-    )
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
 
-    if response.status_code != 200:
-        print(
-            "GEMINI HTTP ERROR:",
-            response.status_code,
-            response.text[:500],
-            flush=True
+            if response.status_code != 200:
+
+                print(
+                    "GEMINI HTTP ERROR:",
+                    response.status_code,
+                    response.text[:500],
+                    flush=True
+                )
+
+                return ""
+
+            data = response.json()
+
+            try:
+
+                text = (
+                    data["candidates"][0]
+                    ["content"]["parts"][0]
+                    ["text"]
+                )
+
+            except Exception:
+
+                return ""
+
+            return text or ""
+
+        text = await asyncio.to_thread(
+            call_ai
         )
-        return ""
 
-    data = response.json()
+        if not text:
 
-    try:
-        text = (
-            data["candidates"][0]
-            ["content"]["parts"][0]
-            ["text"]
-        )
-    except Exception:
-        return ""
+            return "ERROR"
 
-    return text or ""
+        answer = text.strip().upper()
 
+        if re.search(
+            r"\bBUY\b",
+            answer
+        ):
 
-text = await asyncio.to_thread(
-    call_ai
-)
+            return "BUY"
 
-if not text:
-    return "ERROR"
+        if re.search(
+            r"\bSELL\b",
+            answer
+        ):
+
+            return "SELL"
+
+        if re.search(
+            r"\bWAIT\b",
+            answer
+        ):
+
+            return "WAIT"
+
+        return "ERROR"
+
+Muhiim: "if genai is None:" qaybtii hore ee aad sheegtay sidoo kale waa inay meesha ka baxdaa. "genai" hadda gabi ahaanba ma isticmaaleyno.
+
+Kadib Commit → Deploy.
+
+Ha beddelin wax kale.
 
 answer = text.strip().upper()
 
