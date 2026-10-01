@@ -1191,70 +1191,97 @@ WAIT
 
         def call_ai():
 
-            client = genai.Client(
-                api_key=GEMINI_API_KEY
-            )
+    import requests
 
-            response = client.models.generate_content(
-                model=AI_MODEL,
-                contents=prompt
-            )
+    url = (
+        "https://generativelanguage.googleapis.com/"
+        "v1beta/models/"
+        f"{AI_MODEL}:generateContent"
+    )
 
-            if response is None:
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY
+    }
 
-                return ""
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": prompt
+                    }
+                ]
+            }
+        ]
+    }
 
-            return (
-                getattr(
-                    response,
-                    "text",
-                    ""
-                )
-                or ""
-            )
+    response = requests.post(
+        url,
+        headers=headers,
+        json=payload,
+        timeout=30
+    )
 
-        text = await asyncio.to_thread(
-            call_ai
-        )
-
-        if not text:
-
-            return "ERROR"
-
-        answer = text.strip().upper()
-
-        if re.search(
-            r"\bBUY\b",
-            answer
-        ):
-
-            return "BUY"
-
-        if re.search(
-            r"\bSELL\b",
-            answer
-        ):
-
-            return "SELL"
-
-        if re.search(
-            r"\bWAIT\b",
-            answer
-        ):
-
-            return "WAIT"
-
-        return "ERROR"
-
-    except Exception as e:
-
+    if response.status_code != 200:
         print(
-            "GEMINI AI ERROR:",
-            repr(e),
+            "GEMINI HTTP ERROR:",
+            response.status_code,
+            response.text[:500],
             flush=True
         )
+        return ""
 
-        return "ERROR"
+    data = response.json()
+
+    try:
+        text = (
+            data["candidates"][0]
+            ["content"]["parts"][0]
+            ["text"]
+        )
+    except Exception:
+        return ""
+
+    return text or ""
+
+
+text = await asyncio.to_thread(
+    call_ai
+)
+
+if not text:
+    return "ERROR"
+
+answer = text.strip().upper()
+
+if re.search(
+    r"\bBUY\b",
+    answer
+):
+    return "BUY"
+
+if re.search(
+    r"\bSELL\b",
+    answer
+):
+    return "SELL"
+
+if re.search(
+    r"\bWAIT\b",
+    answer
+):
+    return "WAIT"
+
+return "ERROR"
+
+Laakiin hal wax muhiim ah: qaybta kore ee function-kaaga waxaa weli ku jiri kara:
+
+if genai is None:
+
+Taasna waa in laga saaraa, sababtoo ah "genai" dambe ma isticmaaleyno.
+
+Markaas "NameError: name 'genai' is not defined" wuu joogsanayaa.
 
 
 # =========================================================
