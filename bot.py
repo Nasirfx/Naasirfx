@@ -797,7 +797,7 @@ def sr_filter(
 
     return True,support,resistance
 
-async def ask_gemini(
+ def ask_gemini(
     asset,
     timeframe,
     expiry,
@@ -907,8 +907,93 @@ WAIT
                         {
                             "parts":[
                                 {
-                                    "text":prompt
-                                }
+async def ask_gemini(
+    asset,
+    timeframe,
+    expiry,
+    df,
+    higher_signal,
+    trend_signal,
+    rsi_signal,
+    current_signal,
+    previous_signal,
+    call_count,
+    put_count,
+    support,
+    resistance,
+    price
+):
+    if not GEMINI_API_KEY:
+        return "ERROR"
+
+    try:
+        recent=df.tail(20)[
+            ["open","high","low","close"]
+        ]
+
+        rows=[]
+
+        for _,r in recent.iterrows():
+            rows.append({
+                "open":round(float(r["open"]),8),
+                "high":round(float(r["high"]),8),
+                "low":round(float(r["low"]),8),
+                "close":round(float(r["close"]),8)
+            })
+
+        direction=(
+            "CALL"
+            if call_count>put_count
+            else "PUT"
+            if put_count>call_count
+            else "WAIT"
+        )
+
+        prompt=f"""
+You are a conservative market-analysis confirmation engine.
+You are NOT placing trades.
+Analyze ONLY the supplied technical information.
+
+Asset: {asset}
+Timeframe: {timeframe}
+Expiry: {expiry}
+Technical direction: {direction}
+CALL confirmations: {call_count}/5
+PUT confirmations: {put_count}/5
+Trend: {trend_signal}
+RSI: {rsi_signal}
+Current candle: {current_signal}
+Previous candle: {previous_signal}
+Higher timeframe: {higher_signal}
+Price: {price}
+Support: {support}
+Resistance: {resistance}
+Recent candles: {json.dumps(rows)}
+
+Return exactly one word:
+BUY
+SELL
+or
+WAIT
+"""
+
+        def call_ai():
+            url=(
+                "https://generativelanguage.googleapis.com/"
+                f"v1beta/models/{AI_MODEL}:generateContent"
+            )
+
+            response=requests.post(
+                url,
+                headers={
+                    "Content-Type":"application/json",
+                    "x-goog-api-key":GEMINI_API_KEY
+                },
+                json={
+                    "contents":[
+                        {
+                            "parts":[
+                                {"text":prompt}
                             ]
                         }
                     ]
@@ -917,19 +1002,16 @@ WAIT
             )
 
             if response.status_code!=200:
-
                 print(
                     "GEMINI HTTP ERROR:",
                     response.status_code,
                     flush=True
                 )
-
                 return ""
 
             data=response.json()
 
             try:
-
                 return data[
                     "candidates"
                 ][0][
@@ -937,44 +1019,30 @@ WAIT
                 ][
                     "parts"
                 ][0]["text"]
-
             except Exception:
                 return ""
 
         answer=(
-            await asyncio.to_thread(
-                call_ai
-            )
+            await asyncio.to_thread(call_ai)
         ).strip().upper()
 
-        if re.search(
-            r"\bBUY\b",
-            answer
-        ):
+        if re.search(r"\bBUY\b",answer):
             return "BUY"
 
-        if re.search(
-            r"\bSELL\b",
-            answer
-        ):
+        if re.search(r"\bSELL\b",answer):
             return "SELL"
 
-        if re.search(
-            r"\bWAIT\b",
-            answer
-        ):
+        if re.search(r"\bWAIT\b",answer):
             return "WAIT"
 
         return "ERROR"
 
     except Exception as e:
-
         print(
             "GEMINI AI ERROR:",
             repr(e),
             flush=True
         )
-
         return "ERROR"
 
 def build_signal_panel(
