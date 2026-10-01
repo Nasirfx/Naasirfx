@@ -1255,7 +1255,41 @@ WAIT
         )
 
         if not text:
+            
+answer = text.strip().upper()
 
+        if re.search(
+            r"\bBUY\b",
+            answer
+        ):
+
+            return "BUY"
+
+        if re.search(
+            r"\bSELL\b",
+            answer
+        ):
+
+            return "SELL"
+
+        if re.search(
+            r"\bWAIT\b",
+            answer
+        ):
+
+            return "WAIT"
+
+        return "ERROR"
+
+    except Exception as e:
+
+        print(
+            "GEMINI AI ERROR:",
+            repr(e),
+            flush=True
+        )
+
+        return "ERROR"
             return "ERROR"
 
         answer = text.strip().upper()
