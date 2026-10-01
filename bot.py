@@ -1308,12 +1308,6 @@ WAIT
 
         return "ERROR"
 
-Muhiim: "" qaybtii hore ee aad sheegtay sidoo kale waa inay meesha ka baxdaa. "genai" hadda gabi ahaanba ma isticmaaleyno.
-
-Kadib Commit → Deploy.
-
-Ha beddelin wax kale.
-
 answer = text.strip().upper()
 
 if re.search(
