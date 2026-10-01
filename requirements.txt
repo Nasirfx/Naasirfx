@@ -5,3 +5,4 @@ tzlocal
 backoff
 numpy
 pocketoptionapi-async==2.0.1
+google-genai
