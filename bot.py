@@ -1,5 +1,7 @@
 import os
 import asyncio
+import json
+import re
 import numpy as np
 import pandas as pd
 
@@ -27,6 +29,21 @@ from pocketoptionapi_async.constants import ASSETS
 
 
 # =========================================================
+# GEMINI AI
+# =========================================================
+
+try:
+    from google import genai
+except Exception:
+    genai = None
+
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+AI_MODEL = "gemini-2.5-flash-lite"
+
+
+# =========================================================
 # SETTINGS
 # =========================================================
 
@@ -37,7 +54,6 @@ DEFAULT_ASSET = "EURUSD_otc"
 DEFAULT_TIMEFRAME = 180
 DEFAULT_EXPIRY = 180
 
-HIGHER_TIMEFRAME = 300
 CANDLE_COUNT = 100
 
 
@@ -55,6 +71,7 @@ CNY_OTC_ASSETS = {
 }
 
 try:
+
     if isinstance(ASSETS, dict):
 
         for asset_name, asset_id in CNY_OTC_ASSETS.items():
@@ -195,6 +212,8 @@ def timeframe_name(seconds):
         1800: "30 Minutes",
 
         3600: "1 Hour",
+
+        14400: "4 Hours",
     }
 
     return names.get(
@@ -424,85 +443,45 @@ FOREX_OTC_PAIRS = {
 STOCK_NAMES = {
 
     "#AAPL": "🍎 Apple",
-
     "#AXP": "💳 American Express",
-
     "#MCD": "🍔 McDonald's",
-
     "#MSFT": "🟢 Microsoft",
-
     "#META": "🔵 Meta",
-
     "#AMZN": "🟠 Amazon",
-
     "#TSLA": "🚗 Tesla",
-
     "#NVDA": "🟢 NVIDIA",
-
     "#KO": "🔴 Coca-Cola",
-
     "#MA": "💳 Mastercard",
-
     "#V": "💳 Visa",
-
     "#GOOGL": "🔵 Google",
-
     "#GOOG": "🔵 Google",
-
     "#NFLX": "🎬 Netflix",
-
     "#AMD": "🔴 AMD",
-
     "#INTC": "🔵 Intel",
-
     "#IBM": "🔵 IBM",
-
     "#ORCL": "🔴 Oracle",
-
     "#CRM": "☁️ Salesforce",
-
     "#DIS": "🏰 Disney",
-
     "#NKE": "👟 Nike",
-
     "#PEP": "🥤 PepsiCo",
-
     "#WMT": "🛒 Walmart",
-
     "#JPM": "🏦 JPMorgan Chase",
-
     "#BAC": "🏦 Bank of America",
-
     "#C": "🏦 Citigroup",
-
     "#GS": "🏦 Goldman Sachs",
-
     "#XOM": "⛽ Exxon Mobil",
-
     "#CVX": "⛽ Chevron",
-
     "#BA": "✈️ Boeing",
-
     "#PFE": "💊 Pfizer",
-
     "#JNJ": "💊 Johnson & Johnson",
-
     "#CSCO": "🌐 Cisco",
-
     "#ADBE": "🎨 Adobe",
-
     "#QCOM": "📱 Qualcomm",
-
     "#UBER": "🚕 Uber",
-
     "#PYPL": "💳 PayPal",
-
     "#SHOP": "🛍 Shopify",
-
     "#BABA": "🛒 Alibaba",
-
     "#T": "📡 AT&T",
-
     "#VZ": "📡 Verizon",
 }
 
@@ -514,85 +493,45 @@ STOCK_NAMES = {
 STOCK_OTC_NAMES = {
 
     "#AAPL_otc": "🍎 Apple OTC",
-
     "#AXP_otc": "💳 American Express OTC",
-
     "#MCD_otc": "🍔 McDonald's OTC",
-
     "#MSFT_otc": "🟢 Microsoft OTC",
-
     "#META_otc": "🔵 Meta OTC",
-
     "#AMZN_otc": "🟠 Amazon OTC",
-
     "#TSLA_otc": "🚗 Tesla OTC",
-
     "#NVDA_otc": "🟢 NVIDIA OTC",
-
     "#KO_otc": "🔴 Coca-Cola OTC",
-
     "#MA_otc": "💳 Mastercard OTC",
-
     "#V_otc": "💳 Visa OTC",
-
     "#GOOGL_otc": "🔵 Google OTC",
-
     "#GOOG_otc": "🔵 Google OTC",
-
     "#NFLX_otc": "🎬 Netflix OTC",
-
     "#AMD_otc": "🔴 AMD OTC",
-
     "#INTC_otc": "🔵 Intel OTC",
-
     "#IBM_otc": "🔵 IBM OTC",
-
     "#ORCL_otc": "🔴 Oracle OTC",
-
     "#CRM_otc": "☁️ Salesforce OTC",
-
     "#DIS_otc": "🏰 Disney OTC",
-
     "#NKE_otc": "👟 Nike OTC",
-
     "#PEP_otc": "🥤 PepsiCo OTC",
-
     "#WMT_otc": "🛒 Walmart OTC",
-
     "#JPM_otc": "🏦 JPMorgan Chase OTC",
-
     "#BAC_otc": "🏦 Bank of America OTC",
-
     "#C_otc": "🏦 Citigroup OTC",
-
     "#GS_otc": "🏦 Goldman Sachs OTC",
-
     "#XOM_otc": "⛽ Exxon Mobil OTC",
-
     "#CVX_otc": "⛽ Chevron OTC",
-
     "#BA_otc": "✈️ Boeing OTC",
-
     "#PFE_otc": "💊 Pfizer OTC",
-
     "#JNJ_otc": "💊 Johnson & Johnson OTC",
-
     "#CSCO_otc": "🌐 Cisco OTC",
-
     "#ADBE_otc": "🎨 Adobe OTC",
-
     "#QCOM_otc": "📱 Qualcomm OTC",
-
     "#UBER_otc": "🚕 Uber OTC",
-
     "#PYPL_otc": "💳 PayPal OTC",
-
     "#SHOP_otc": "🛍 Shopify OTC",
-
     "#BABA_otc": "🛒 Alibaba OTC",
-
     "#T_otc": "📡 AT&T OTC",
-
     "#VZ_otc": "📡 Verizon OTC",
 }
 
@@ -625,9 +564,7 @@ def get_stock_assets():
             if not asset.startswith("#"):
                 continue
 
-            if asset.lower().endswith(
-                "_otc"
-            ):
+            if asset.lower().endswith("_otc"):
                 continue
 
             if asset in STOCK_NAMES:
@@ -679,9 +616,7 @@ def get_stock_otc_assets():
             if not asset.startswith("#"):
                 continue
 
-            if not asset.lower().endswith(
-                "_otc"
-            ):
+            if not asset.lower().endswith("_otc"):
                 continue
 
             if asset in STOCK_OTC_NAMES:
@@ -759,6 +694,9 @@ async def start(
         "📌 Pair-ka adiga ayaa dooranaya.\n"
         "📌 Timeframe-ka adiga ayaa dooranaya.\n"
         "📌 Expiry-ga adiga ayaa dooranaya.\n\n"
+
+        "🤖 AI confirmation waa shaqaynayaa "
+        "haddii GEMINI_API_KEY la geliyo.\n"
 
         "⚠️ Automatic pair selection ma jiro.\n"
         "⚠️ Auto-trading ma jiro.",
@@ -875,6 +813,13 @@ async def timeframe_menu(
             InlineKeyboardButton(
                 "1️⃣ Hour",
                 callback_data="TF|3600"
+            ),
+        ],
+
+        [
+            InlineKeyboardButton(
+                "4️⃣ Hours",
+                callback_data="TF|14400"
             ),
         ],
 
@@ -997,7 +942,6 @@ async def callback_handler(
 
     data = query.data
 
-
     # =====================================================
     # PAIR CATEGORY
     # =====================================================
@@ -1017,33 +961,25 @@ async def callback_handler(
 
             title = "💱 FOREX"
 
-            assets = all_pairs[
-                "FOREX"
-            ]
+            assets = all_pairs["FOREX"]
 
         elif category == "FOREX_OTC":
 
             title = "💱 FOREX OTC"
 
-            assets = all_pairs[
-                "FOREX_OTC"
-            ]
+            assets = all_pairs["FOREX_OTC"]
 
         elif category == "STOCKS":
 
             title = "📈 STOCKS"
 
-            assets = all_pairs[
-                "STOCKS"
-            ]
+            assets = all_pairs["STOCKS"]
 
         elif category == "STOCKS_OTC":
 
             title = "📈 STOCKS OTC"
 
-            assets = all_pairs[
-                "STOCKS_OTC"
-            ]
+            assets = all_pairs["STOCKS_OTC"]
 
         else:
 
@@ -1068,17 +1004,13 @@ async def callback_handler(
 
         row = []
 
-        current = settings[
-            "asset"
-        ]
+        current = settings["asset"]
 
         for name, code in assets.items():
 
             if code == current:
 
-                button_text = (
-                    f"✅ {name}"
-                )
+                button_text = f"✅ {name}"
 
             else:
 
@@ -1088,9 +1020,7 @@ async def callback_handler(
 
                 InlineKeyboardButton(
                     button_text,
-                    callback_data=(
-                        f"PAIR|{code}"
-                    )
+                    callback_data=f"PAIR|{code}"
                 )
             )
 
@@ -1126,7 +1056,6 @@ async def callback_handler(
         )
 
         return
-
 
     # =====================================================
     # BACK TO PAIRS CATEGORIES
@@ -1184,7 +1113,6 @@ async def callback_handler(
 
         return
 
-
     # =====================================================
     # PAIR
     # =====================================================
@@ -1202,9 +1130,7 @@ async def callback_handler(
 
         valid_assets = []
 
-        for category_assets in (
-            all_pairs.values()
-        ):
+        for category_assets in all_pairs.values():
 
             valid_assets.extend(
                 category_assets.values()
@@ -1237,7 +1163,6 @@ async def callback_handler(
 
         return
 
-
     # =====================================================
     # TIMEFRAME
     # =====================================================
@@ -1253,9 +1178,7 @@ async def callback_handler(
             )[1]
         )
 
-        settings[
-            "timeframe"
-        ] = seconds
+        settings["timeframe"] = seconds
 
         await query.edit_message_text(
 
@@ -1275,7 +1198,6 @@ async def callback_handler(
 
         return
 
-
     # =====================================================
     # EXPIRY
     # =====================================================
@@ -1291,9 +1213,7 @@ async def callback_handler(
             )[1]
         )
 
-        settings[
-            "expiry"
-        ] = seconds
+        settings["expiry"] = seconds
 
         await query.edit_message_text(
 
@@ -1312,7 +1232,6 @@ async def callback_handler(
         )
 
         return
-
 
     # =====================================================
     # BACK
@@ -1352,6 +1271,12 @@ async def status_command(
         else "❌ MISSING"
     )
 
+    ai_status = (
+        "✅ READY"
+        if GEMINI_API_KEY and genai
+        else "❌ MISSING"
+    )
+
     all_pairs = get_all_pairs()
 
     total_pairs = sum(
@@ -1367,7 +1292,10 @@ async def status_command(
         f"{token_status}\n"
 
         f"Pocket Option SSID: "
-        f"{ssid_status}\n\n"
+        f"{ssid_status}\n"
+
+        f"Gemini AI: "
+        f"{ai_status}\n\n"
 
         f"💱 Pair: "
         f"{settings['asset']}\n"
@@ -1403,10 +1331,7 @@ def candle_to_row(candle):
 
     try:
 
-        if isinstance(
-            candle,
-            dict
-        ):
+        if isinstance(candle, dict):
 
             open_value = candle.get(
                 "open",
@@ -1445,8 +1370,8 @@ def candle_to_row(candle):
                 "high",
                 getattr(
                     candle,
-                "h",
-                None
+                    "h",
+                    None
                 )
             )
 
@@ -1484,26 +1409,20 @@ def candle_to_row(candle):
 
         return {
 
-            "open": float(
-                open_value
-            ),
+            "open": float(open_value),
 
-            "high": float(
-                high_value
-            ),
+            "high": float(high_value),
 
-            "low": float(
-                low_value
-            ),
+            "low": float(low_value),
 
-            "close": float(
-                close_value
-            ),
+            "close": float(close_value),
         }
 
     except Exception:
 
         return None
+
+
 # =========================================================
 # CONVERT CANDLES TO DATAFRAME
 # =========================================================
@@ -1524,9 +1443,7 @@ def candles_to_dataframe(candles):
 
         for column in df.columns:
 
-            lower = str(
-                column
-            ).lower()
+            lower = str(column).lower()
 
             if lower == "o":
                 rename_map[column] = "open"
@@ -1965,8 +1882,6 @@ def calculate_support_resistance(
         )
 
         return None, None
-
-
 # =========================================================
 # SUPPORT / RESISTANCE FILTER
 # =========================================================
@@ -2000,7 +1915,6 @@ def support_resistance_filter(
             resistance - support
         )
 
-        # Distance from current price
         distance_to_support = (
             price - support
         )
@@ -2009,36 +1923,16 @@ def support_resistance_filter(
             resistance - price
         )
 
-        # -------------------------------------------------
-        # CALL
-        #
-        # CALL waa la oggol yahay haddii:
-        # - Price-ku uusan aad ugu dhoweyn resistance
-        # - Uu weli leeyahay meel uu kor ugu socdo
-        # -------------------------------------------------
-
         if signal == "CALL":
 
             minimum_room = (
                 total_range * 0.20
             )
 
-            if (
+            return (
                 distance_to_resistance
                 >= minimum_room
-            ):
-
-                return True
-
-            return False
-
-        # -------------------------------------------------
-        # PUT
-        #
-        # PUT waa la oggol yahay haddii:
-        # - Price-ku uusan aad ugu dhoweyn support
-        # - Uu weli leeyahay meel uu hoos ugu socdo
-        # -------------------------------------------------
+            )
 
         if signal == "PUT":
 
@@ -2046,14 +1940,10 @@ def support_resistance_filter(
                 total_range * 0.20
             )
 
-            if (
+            return (
                 distance_to_support
                 >= minimum_room
-            ):
-
-                return True
-
-            return False
+            )
 
         return False
 
@@ -2066,6 +1956,200 @@ def support_resistance_filter(
         )
 
         return False
+
+
+# =========================================================
+# TECHNICAL SIGNAL
+# =========================================================
+
+def technical_signal_from_counts(
+    call_count,
+    put_count
+):
+
+    # 5/5 = strongest technical setup
+    if call_count == 5:
+        return "CALL", "5/5"
+
+    if put_count == 5:
+        return "PUT", "5/5"
+
+    # 4/5 = allowed, but must pass AI + S/R
+    if call_count == 4:
+        return "CALL", "4/5"
+
+    if put_count == 4:
+        return "PUT", "4/5"
+
+    # 3/5 or lower = WAIT
+    return "WAIT", "0-3/5"
+
+
+# =========================================================
+# GEMINI AI ANALYSIS
+# =========================================================
+
+async def ask_gemini(
+    asset,
+    timeframe,
+    expiry,
+    df,
+    higher_signal,
+    trend_signal,
+    rsi_signal,
+    current_signal,
+    previous_signal,
+    call_count,
+    put_count,
+    support,
+    resistance,
+    price
+):
+
+    if not GEMINI_API_KEY:
+
+        print(
+            "AI ERROR: GEMINI_API_KEY missing",
+            flush=True
+        )
+
+        return "WAIT"
+
+    if genai is None:
+
+        print(
+            "AI ERROR: google-genai package missing",
+            flush=True
+        )
+
+        return "WAIT"
+
+    try:
+
+        # Only send recent candles to AI.
+        recent = df.tail(20)[
+            ["open", "high", "low", "close"]
+        ].copy()
+
+        recent_rows = []
+
+        for _, row in recent.iterrows():
+
+            recent_rows.append({
+                "open": round(float(row["open"]), 8),
+                "high": round(float(row["high"]), 8),
+                "low": round(float(row["low"]), 8),
+                "close": round(float(row["close"]), 8),
+            })
+
+        prompt = f"""
+You are a conservative market-analysis confirmation engine.
+
+You are NOT placing trades.
+You must analyze the supplied technical market data only.
+
+Asset: {asset}
+Timeframe: {timeframe_name(timeframe)}
+Expiry: {expiry_name(expiry)}
+
+Technical direction:
+{("CALL" if call_count > put_count else "PUT" if put_count > call_count else "WAIT")}
+
+Technical confirmations:
+CALL = {call_count}/5
+PUT = {put_count}/5
+
+MA trend:
+{trend_signal}
+
+RSI direction:
+{rsi_signal}
+
+Current candle:
+{current_signal}
+
+Previous candle:
+{previous_signal}
+
+Higher timeframe:
+{higher_signal}
+
+Current price:
+{price}
+
+Support:
+{support}
+
+Resistance:
+{resistance}
+
+Recent candles:
+{json.dumps(recent_rows)}
+
+Rules:
+
+1. Return BUY only if the market evidence supports upward direction.
+2. Return SELL only if the market evidence supports downward direction.
+3. Return WAIT if the evidence is mixed, weak, near an important level,
+   or there is not enough confidence.
+4. Do not invent information.
+5. Do not give explanations.
+6. Your entire response MUST be exactly one word:
+BUY
+SELL
+or
+WAIT
+"""
+
+        def call_ai():
+
+            client = genai.Client(
+                api_key=GEMINI_API_KEY
+            )
+
+            response = client.models.generate_content(
+                model=AI_MODEL,
+                contents=prompt
+            )
+
+            return response.text if response else ""
+
+        text = await asyncio.to_thread(
+            call_ai
+        )
+
+        if not text:
+
+            return "WAIT"
+
+        answer = text.strip().upper()
+
+        # Clean accidental markdown / punctuation
+        answer = re.sub(
+            r"[^A-Z]",
+            "",
+            answer
+        )
+
+        if answer == "BUY":
+
+            return "BUY"
+
+        if answer == "SELL":
+
+            return "SELL"
+
+        return "WAIT"
+
+    except Exception as e:
+
+        print(
+            "GEMINI AI ERROR:",
+            repr(e),
+            flush=True
+        )
+
+        return "WAIT"
 
 
 # =========================================================
@@ -2087,20 +2171,20 @@ async def analyze_signal(
     if df is None:
 
         return {
-
-            "error":
-                "DATA LAMA HELIN"
+            "error": "DATA LAMA HELIN"
         }
 
     if len(df) < 60:
 
         return {
-
-            "error":
-                "DATA LAMA HELIN"
+            "error": "DATA LAMA HELIN"
         }
 
     df = df.copy()
+
+    # -----------------------------------------------------
+    # INDICATORS
+    # -----------------------------------------------------
 
     df["MA10"] = (
         df["close"]
@@ -2139,7 +2223,7 @@ async def analyze_signal(
     )
 
     # -----------------------------------------------------
-    # SUPPORT & RESISTANCE
+    # SUPPORT / RESISTANCE
     # -----------------------------------------------------
 
     support, resistance = (
@@ -2257,7 +2341,7 @@ async def analyze_signal(
         higher_signal = "WAIT"
 
     # -----------------------------------------------------
-    # COUNT CONFIRMATIONS
+    # COUNT 5 CONFIRMATIONS
     # -----------------------------------------------------
 
     signals = [
@@ -2282,46 +2366,18 @@ async def analyze_signal(
     )
 
     # -----------------------------------------------------
-    # STRICT 5/5
-    # -----------------------------------------------------
-    #
-    # IMPORTANT:
-    #
-    # 4/5 MA AHA SIGNAL.
-    #
-    # Signal waxaa la tixgelinayaa oo keliya:
-    #
-    # CALL = 5/5 CALL
-    # PUT  = 5/5 PUT
-    #
+    # 5/5 OR 4/5
     # -----------------------------------------------------
 
-    raw_signal = "WAIT"
-
-    if call_count == 5:
-
-        raw_signal = "CALL"
-
-    elif put_count == 5:
-
-        raw_signal = "PUT"
+    raw_signal, confirmation_level = (
+        technical_signal_from_counts(
+            call_count,
+            put_count
+        )
+    )
 
     # -----------------------------------------------------
-    # SUPPORT / RESISTANCE FILTER
-    # -----------------------------------------------------
-    #
-    # S/R laguma darin 5-ta confirmations.
-    #
-    # Waa filter dheeraad ah.
-    #
-    # Haddii 5/5 CALL yahay laakiin resistance
-    # aad ugu dhow yahay -> WAIT.
-    #
-    # Haddii 5/5 PUT yahay laakiin support
-    # aad ugu dhow yahay -> WAIT.
-    #
-    # Haddii S/R data la waayo -> WAIT.
-    #
+    # S/R FILTER
     # -----------------------------------------------------
 
     sr_filter_pass = False
@@ -2340,19 +2396,72 @@ async def analyze_signal(
             )
         )
 
-    if (
-        raw_signal in (
-            "CALL",
-            "PUT"
-        )
-        and sr_filter_pass
+    # -----------------------------------------------------
+    # AI
+    # -----------------------------------------------------
+
+    ai_signal = "WAIT"
+
+    if raw_signal in (
+        "CALL",
+        "PUT"
     ):
 
-        final_signal = raw_signal
+        ai_signal = await ask_gemini(
+            asset=asset,
+            timeframe=timeframe,
+            expiry=expiry,
+            df=df,
+            higher_signal=higher_signal,
+            trend_signal=trend_signal,
+            rsi_signal=rsi_signal,
+            current_signal=current_signal,
+            previous_signal=previous_signal,
+            call_count=call_count,
+            put_count=put_count,
+            support=support,
+            resistance=resistance,
+            price=price
+        )
 
-    else:
+    # -----------------------------------------------------
+    # FINAL DECISION
+    # -----------------------------------------------------
+    #
+    # 5/5:
+    # technical + S/R + AI must agree.
+    #
+    # 4/5:
+    # technical + S/R + AI must agree.
+    #
+    # 3/5 or lower:
+    # WAIT.
+    #
+    # -----------------------------------------------------
 
-        final_signal = "WAIT"
+    final_signal = "WAIT"
+
+    if raw_signal == "CALL":
+
+        if (
+            sr_filter_pass
+            and ai_signal == "BUY"
+        ):
+
+            final_signal = "CALL"
+
+    elif raw_signal == "PUT":
+
+        if (
+            sr_filter_pass
+            and ai_signal == "SELL"
+        ):
+
+            final_signal = "PUT"
+
+    # -----------------------------------------------------
+    # EMOJI
+    # -----------------------------------------------------
 
     if final_signal == "CALL":
 
@@ -2374,8 +2483,14 @@ async def analyze_signal(
         "raw_signal":
             raw_signal,
 
+        "confirmation_level":
+            confirmation_level,
+
         "final_emoji":
             final_emoji,
+
+        "ai_signal":
+            ai_signal,
 
         "trend":
             trend_signal,
@@ -2428,7 +2543,9 @@ async def analyze_signal(
         "expiry":
             expiry,
     }
-    # =========================================================
+
+
+# =========================================================
 # SIGNAL COMMAND
 # =========================================================
 
@@ -2441,29 +2558,23 @@ async def signal_command(
         update.effective_user.id
     )
 
-    asset = settings[
-        "asset"
-    ]
+    asset = settings["asset"]
 
-    timeframe = settings[
-        "timeframe"
-    ]
+    timeframe = settings["timeframe"]
 
-    expiry = settings[
-        "expiry"
-    ]
+    expiry = settings["expiry"]
 
     message = await update.message.reply_text(
 
-        "⏳ SIGNAL WAA LA SOO SAARAYAA...\n\n"
+        "⏳ NAASIRFX AI\n\n"
 
-        f"💱 Asset: {asset}\n"
+        "Market-ka ayaa la falanqeynayaa...\n\n"
 
-        f"⏱ Timeframe: "
-        f"{timeframe_name(timeframe)}\n"
+        f"💱 {asset}\n"
 
-        f"⌛ Expiry: "
-        f"{expiry_name(expiry)}"
+        f"⏱ {timeframe_name(timeframe)}\n"
+
+        f"⌛ {expiry_name(expiry)}"
     )
 
     result = await analyze_signal(
@@ -2476,17 +2587,12 @@ async def signal_command(
 
         await message.edit_text(
 
-            "❌ DATA LAMA HELIN\n\n"
+            "⚪ WAIT\n\n"
 
-            f"Asset: {asset}\n"
+            f"💱 {asset}\n\n"
 
-            f"Timeframe: "
-            f"{timeframe_name(timeframe)}\n\n"
-
-            "Bot-ku candles kama helin "
-            "Pocket Option API-ga asset-kan.\n\n"
-
-            "ℹ️ Bot-ku ma sameynayo signal been ah."
+            "Candles ku filan lama helin.\n"
+            "Signal been ah lama sameynayo."
         )
 
         return
@@ -2495,218 +2601,62 @@ async def signal_command(
         "final_signal"
     ]
 
-    final_emoji = result[
-        "final_emoji"
-    ]
-
-    raw_signal = result[
-        "raw_signal"
-    ]
-
-    sr_filter_pass = result[
-        "sr_filter_pass"
-    ]
-
     # -----------------------------------------------------
-    # SUPPORT / RESISTANCE DISPLAY
+    # SIMPLE USER OUTPUT
     # -----------------------------------------------------
 
-    support = result.get(
-        "support"
-    )
+    if final_signal == "CALL":
 
-    resistance = result.get(
-        "resistance"
-    )
+        await message.edit_text(
 
-    if support is not None:
+            f"💱 {asset}\n\n"
 
-        support_text = format_price(
-            support
+            "🤖 NAASIRFX AI\n\n"
+
+            "🟢 BUY\n\n"
+
+            f"⏱ Timeframe: "
+            f"{timeframe_name(timeframe)}\n"
+
+            f"⌛ Expiry: "
+            f"{expiry_name(expiry)}"
+        )
+
+    elif final_signal == "PUT":
+
+        await message.edit_text(
+
+            f"💱 {asset}\n\n"
+
+            "🤖 NAASIRFX AI\n\n"
+
+            "🔴 SELL\n\n"
+
+            f"⏱ Timeframe: "
+            f"{timeframe_name(timeframe)}\n"
+
+            f"⌛ Expiry: "
+            f"{expiry_name(expiry)}"
         )
 
     else:
 
-        support_text = "N/A"
+        await message.edit_text(
 
-    if resistance is not None:
+            f"💱 {asset}\n\n"
 
-        resistance_text = format_price(
-            resistance
+            "🤖 NAASIRFX AI\n\n"
+
+            "⚪ WAIT\n\n"
+
+            "Suuqa hadda signal cad ma siinayo.\n\n"
+
+            f"⏱ Timeframe: "
+            f"{timeframe_name(timeframe)}\n"
+
+            f"⌛ Expiry: "
+            f"{expiry_name(expiry)}"
         )
-
-    else:
-
-        resistance_text = "N/A"
-
-    # -----------------------------------------------------
-    # DISTANCE FROM PRICE
-    # -----------------------------------------------------
-
-    price = result["price"]
-
-    if support is not None:
-
-        support_distance = abs(
-            price - support
-        )
-
-    else:
-
-        support_distance = None
-
-    if resistance is not None:
-
-        resistance_distance = abs(
-            resistance - price
-        )
-
-    else:
-
-        resistance_distance = None
-
-    if support_distance is not None:
-
-        support_distance_text = format_price(
-            support_distance
-        )
-
-    else:
-
-        support_distance_text = "N/A"
-
-    if resistance_distance is not None:
-
-        resistance_distance_text = format_price(
-            resistance_distance
-        )
-
-    else:
-
-        resistance_distance_text = "N/A"
-
-    # -----------------------------------------------------
-    # FINAL SIGNAL DESCRIPTION
-    # -----------------------------------------------------
-
-    if (
-        final_signal in (
-            "CALL",
-            "PUT"
-        )
-        and
-        result["call_count"] == 5
-        or
-        final_signal in (
-            "CALL",
-            "PUT"
-        )
-        and
-        result["put_count"] == 5
-    ):
-
-        signal_status = (
-            "STRONG 5/5 CONFIRMATION"
-        )
-
-    elif raw_signal in (
-        "CALL",
-        "PUT"
-    ):
-
-        signal_status = (
-            "5/5 laakiin S/R FILTER ayaa diiday"
-        )
-
-    else:
-
-        signal_status = (
-            "5/5 ma buuxsamin"
-        )
-
-    # -----------------------------------------------------
-    # OUTPUT
-    # -----------------------------------------------------
-
-    await message.edit_text(
-
-        "📊 NAASIRFX SIGNAL\n\n"
-
-        f"💱 Asset: {asset}\n\n"
-
-        "📌 FINAL SIGNAL:\n"
-
-        f"{final_emoji} "
-        f"{final_signal}\n"
-
-        f"📌 Status: "
-        f"{signal_status}\n\n"
-
-        "🔎 CONFIRMATION CHECK\n\n"
-
-        f"📈 Trend — MA10 + MA50:\n"
-        f"{result['trend']}\n\n"
-
-        f"📊 Momentum — RSI:\n"
-        f"{result['rsi_signal']} "
-        f"(RSI {result['rsi']:.2f})\n\n"
-
-        f"🕯 Current Candle:\n"
-        f"{result['current_candle']}\n\n"
-
-        f"🕯 Previous Candle:\n"
-        f"{result['previous_candle']}\n\n"
-
-        f"⏫ Higher Timeframe:\n"
-        f"{result['higher_signal']} "
-        f"({timeframe_name(result['higher_tf'])})\n\n"
-
-        f"📊 CALL confirmations: "
-        f"{result['call_count']}/5\n"
-
-        f"📊 PUT confirmations: "
-        f"{result['put_count']}/5\n\n"
-
-        "📊 SUPPORT & RESISTANCE\n\n"
-
-        f"🟢 Support: "
-        f"{support_text}\n"
-
-        f"🔴 Resistance: "
-        f"{resistance_text}\n\n"
-
-        f"📏 Distance to Support: "
-        f"{support_distance_text}\n"
-
-        f"📏 Distance to Resistance: "
-        f"{resistance_distance_text}\n\n"
-
-        f"🔎 S/R FILTER: "
-        f"{'PASS ✅' if sr_filter_pass else 'BLOCKED ❌'}\n\n"
-
-        f"💰 Price: "
-        f"{format_price(result['price'])}\n"
-
-        f"MA10: "
-        f"{format_price(result['ma10'])}\n"
-
-        f"MA50: "
-        f"{format_price(result['ma50'])}\n"
-
-        f"RSI: "
-        f"{result['rsi']:.2f}\n\n"
-
-        f"⏱ Timeframe: "
-        f"{timeframe_name(timeframe)}\n"
-
-        f"⌛ Expiry: "
-        f"{expiry_name(expiry)}\n\n"
-
-        "⚠️ DEMO / SIGNAL ONLY\n"
-        "⚠️ Auto-trading ma jiro.\n"
-        "⚠️ 5/5 technical confirmation "
-        "ma aha 100% guarantee."
-    )
 
 
 # =========================================================
@@ -2819,6 +2769,34 @@ def main():
             flush=True
         )
 
+    if GEMINI_API_KEY:
+
+        print(
+            "GEMINI API KEY FOUND",
+            flush=True
+        )
+
+    else:
+
+        print(
+            "⚠️ GEMINI_API_KEY MISSING",
+            flush=True
+        )
+
+    if genai:
+
+        print(
+            "GEMINI SDK READY",
+            flush=True
+        )
+
+    else:
+
+        print(
+            "⚠️ google-genai SDK NOT FOUND",
+            flush=True
+        )
+
     try:
 
         print(
@@ -2839,8 +2817,7 @@ def main():
 
     except Exception:
         pass
-
-    # -----------------------------------------------------
+       # -----------------------------------------------------
     # RENDER HEALTH SERVER
     # -----------------------------------------------------
 
@@ -2907,4 +2884,4 @@ def main():
 
 if __name__ == "__main__":
 
-    main()
+    main()             
