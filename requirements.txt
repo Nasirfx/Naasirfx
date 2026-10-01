@@ -1,7 +1,6 @@
 python-telegram-bot
 pandas
 pocketoptionapi-async==2.0.1
-google-genai
 tzlocal
 backoff
 numpy
