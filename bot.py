@@ -1255,8 +1255,10 @@ WAIT
         )
 
         if not text:
-            
-answer = text.strip().upper()
+
+            return "ERROR"
+
+        answer = text.strip().upper()
 
         if re.search(
             r"\bBUY\b",
