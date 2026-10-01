@@ -1289,7 +1289,7 @@ answer = text.strip().upper()
             flush=True
         )
 
-        return "ERROR"
+        retur
             return "ERROR"
 
         answer = text.strip().upper()
