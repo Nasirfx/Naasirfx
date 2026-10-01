@@ -4,3 +4,5 @@ pocketoptionapi-async==2.0.1
 tzlocal
 backoff
 numpy
+websockets==11.0.3
+requests
