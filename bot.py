@@ -1445,8 +1445,8 @@ def candle_to_row(candle):
                 "high",
                 getattr(
                     candle,
-                    "h",
-                    None
+                "h",
+                None
                 )
             )
 
@@ -1504,8 +1504,6 @@ def candle_to_row(candle):
     except Exception:
 
         return None
-
-
 # =========================================================
 # CONVERT CANDLES TO DATAFRAME
 # =========================================================
@@ -1970,6 +1968,107 @@ def calculate_support_resistance(
 
 
 # =========================================================
+# SUPPORT / RESISTANCE FILTER
+# =========================================================
+
+def support_resistance_filter(
+    price,
+    support,
+    resistance,
+    signal
+):
+
+    try:
+
+        if (
+            price is None
+            or support is None
+            or resistance is None
+        ):
+
+            return False
+
+        price = float(price)
+        support = float(support)
+        resistance = float(resistance)
+
+        if resistance <= support:
+
+            return False
+
+        total_range = (
+            resistance - support
+        )
+
+        # Distance from current price
+        distance_to_support = (
+            price - support
+        )
+
+        distance_to_resistance = (
+            resistance - price
+        )
+
+        # -------------------------------------------------
+        # CALL
+        #
+        # CALL waa la oggol yahay haddii:
+        # - Price-ku uusan aad ugu dhoweyn resistance
+        # - Uu weli leeyahay meel uu kor ugu socdo
+        # -------------------------------------------------
+
+        if signal == "CALL":
+
+            minimum_room = (
+                total_range * 0.20
+            )
+
+            if (
+                distance_to_resistance
+                >= minimum_room
+            ):
+
+                return True
+
+            return False
+
+        # -------------------------------------------------
+        # PUT
+        #
+        # PUT waa la oggol yahay haddii:
+        # - Price-ku uusan aad ugu dhoweyn support
+        # - Uu weli leeyahay meel uu hoos ugu socdo
+        # -------------------------------------------------
+
+        if signal == "PUT":
+
+            minimum_room = (
+                total_range * 0.20
+            )
+
+            if (
+                distance_to_support
+                >= minimum_room
+            ):
+
+                return True
+
+            return False
+
+        return False
+
+    except Exception as e:
+
+        print(
+            "S/R FILTER ERROR:",
+            repr(e),
+            flush=True
+        )
+
+        return False
+
+
+# =========================================================
 # SIGNAL ANALYSIS
 # =========================================================
 
@@ -2183,24 +2282,87 @@ async def analyze_signal(
     )
 
     # -----------------------------------------------------
-    # FINAL SIGNAL
+    # STRICT 5/5
+    # -----------------------------------------------------
+    #
+    # IMPORTANT:
+    #
+    # 4/5 MA AHA SIGNAL.
+    #
+    # Signal waxaa la tixgelinayaa oo keliya:
+    #
+    # CALL = 5/5 CALL
+    # PUT  = 5/5 PUT
+    #
     # -----------------------------------------------------
 
-    if call_count >= 4:
+    raw_signal = "WAIT"
 
-        final_signal = "CALL"
+    if call_count == 5:
 
-        final_emoji = "🟢"
+        raw_signal = "CALL"
 
-    elif put_count >= 4:
+    elif put_count == 5:
 
-        final_signal = "PUT"
+        raw_signal = "PUT"
 
-        final_emoji = "🔴"
+    # -----------------------------------------------------
+    # SUPPORT / RESISTANCE FILTER
+    # -----------------------------------------------------
+    #
+    # S/R laguma darin 5-ta confirmations.
+    #
+    # Waa filter dheeraad ah.
+    #
+    # Haddii 5/5 CALL yahay laakiin resistance
+    # aad ugu dhow yahay -> WAIT.
+    #
+    # Haddii 5/5 PUT yahay laakiin support
+    # aad ugu dhow yahay -> WAIT.
+    #
+    # Haddii S/R data la waayo -> WAIT.
+    #
+    # -----------------------------------------------------
+
+    sr_filter_pass = False
+
+    if raw_signal in (
+        "CALL",
+        "PUT"
+    ):
+
+        sr_filter_pass = (
+            support_resistance_filter(
+                price,
+                support,
+                resistance,
+                raw_signal
+            )
+        )
+
+    if (
+        raw_signal in (
+            "CALL",
+            "PUT"
+        )
+        and sr_filter_pass
+    ):
+
+        final_signal = raw_signal
 
     else:
 
         final_signal = "WAIT"
+
+    if final_signal == "CALL":
+
+        final_emoji = "🟢"
+
+    elif final_signal == "PUT":
+
+        final_emoji = "🔴"
+
+    else:
 
         final_emoji = "⚪"
 
@@ -2208,6 +2370,9 @@ async def analyze_signal(
 
         "final_signal":
             final_signal,
+
+        "raw_signal":
+            raw_signal,
 
         "final_emoji":
             final_emoji,
@@ -2251,6 +2416,9 @@ async def analyze_signal(
         "resistance":
             resistance,
 
+        "sr_filter_pass":
+            sr_filter_pass,
+
         "higher_tf":
             higher_tf,
 
@@ -2260,9 +2428,7 @@ async def analyze_signal(
         "expiry":
             expiry,
     }
-
-
-# =========================================================
+    # =========================================================
 # SIGNAL COMMAND
 # =========================================================
 
@@ -2331,6 +2497,14 @@ async def signal_command(
 
     final_emoji = result[
         "final_emoji"
+    ]
+
+    raw_signal = result[
+        "raw_signal"
+    ]
+
+    sr_filter_pass = result[
+        "sr_filter_pass"
     ]
 
     # -----------------------------------------------------
@@ -2411,6 +2585,49 @@ async def signal_command(
 
         resistance_distance_text = "N/A"
 
+    # -----------------------------------------------------
+    # FINAL SIGNAL DESCRIPTION
+    # -----------------------------------------------------
+
+    if (
+        final_signal in (
+            "CALL",
+            "PUT"
+        )
+        and
+        result["call_count"] == 5
+        or
+        final_signal in (
+            "CALL",
+            "PUT"
+        )
+        and
+        result["put_count"] == 5
+    ):
+
+        signal_status = (
+            "STRONG 5/5 CONFIRMATION"
+        )
+
+    elif raw_signal in (
+        "CALL",
+        "PUT"
+    ):
+
+        signal_status = (
+            "5/5 laakiin S/R FILTER ayaa diiday"
+        )
+
+    else:
+
+        signal_status = (
+            "5/5 ma buuxsamin"
+        )
+
+    # -----------------------------------------------------
+    # OUTPUT
+    # -----------------------------------------------------
+
     await message.edit_text(
 
         "📊 NAASIRFX SIGNAL\n\n"
@@ -2420,7 +2637,10 @@ async def signal_command(
         "📌 FINAL SIGNAL:\n"
 
         f"{final_emoji} "
-        f"{final_signal}\n\n"
+        f"{final_signal}\n"
+
+        f"📌 Status: "
+        f"{signal_status}\n\n"
 
         "🔎 CONFIRMATION CHECK\n\n"
 
@@ -2461,6 +2681,9 @@ async def signal_command(
         f"📏 Distance to Resistance: "
         f"{resistance_distance_text}\n\n"
 
+        f"🔎 S/R FILTER: "
+        f"{'PASS ✅' if sr_filter_pass else 'BLOCKED ❌'}\n\n"
+
         f"💰 Price: "
         f"{format_price(result['price'])}\n"
 
@@ -2481,8 +2704,8 @@ async def signal_command(
 
         "⚠️ DEMO / SIGNAL ONLY\n"
         "⚠️ Auto-trading ma jiro.\n"
-        "⚠️ Technical confirmation only; "
-        "win-rate lama dammaanad qaadi karo."
+        "⚠️ 5/5 technical confirmation "
+        "ma aha 100% guarantee."
     )
 
 
