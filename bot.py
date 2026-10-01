@@ -173,49 +173,31 @@ CATEGORIES={
     "📈 Stocks OTC":STOCK_OTC_NAMES
 }
 
+# =========================================================
+# CNY OTC - DHAMAAN 6-DA PAIR
+# =========================================================
+
+CNY_OTC_ASSETS={
+    "AEDCNY_otc":538,
+    "BHDCNY_otc":536,
+    "JODCNY_otc":546,
+    "OMRCNY_otc":544,
+    "QARCNY_otc":542,
+    "SARCNY_otc":540
+}
+
 CURRENCY_FLAGS={
-    "EUR":"🇪🇺",
-    "GBP":"🇬🇧",
-    "USD":"🇺🇸",
-    "JPY":"🇯🇵",
-    "CHF":"🇨🇭",
-    "AUD":"🇦🇺",
-    "NZD":"🇳🇿",
-    "CAD":"🇨🇦",
-    "TRY":"🇹🇷",
-    "HUF":"🇭🇺",
-    "RUB":"🇷🇺",
-    "CNH":"🇨🇳",
-    "INR":"🇮🇳",
-    "PHP":"🇵🇭",
-    "DZD":"🇩🇿",
-    "BDT":"🇧🇩",
-    "EGP":"🇪🇬",
-    "CLP":"🇨🇱",
-    "PKR":"🇵🇰",
-    "COP":"🇨🇴",
-    "ARS":"🇦🇷",
-    "MYR":"🇲🇾",
-    "BRL":"🇧🇷",
-    "IDR":"🇮🇩",
-    "MXN":"🇲🇽",
-    "THB":"🇹🇭",
-    "VND":"🇻🇳",
-    "SGD":"🇸🇬",
-    "KES":"🇰🇪",
-    "NGN":"🇳🇬",
-    "ZAR":"🇿🇦",
-    "UAH":"🇺🇦",
-    "YER":"🇾🇪",
-    "LBP":"🇱🇧",
-    "MAD":"🇲🇦",
-    "TND":"🇹🇳",
-    "AED":"🇦🇪",
-    "BHD":"🇧🇭",
-    "JOD":"🇯🇴",
-    "OMR":"🇴🇲",
-    "QAR":"🇶🇦",
-    "SAR":"🇸🇦"
+    "EUR":"🇪🇺","GBP":"🇬🇧","USD":"🇺🇸","JPY":"🇯🇵",
+    "CHF":"🇨🇭","AUD":"🇦🇺","NZD":"🇳🇿","CAD":"🇨🇦",
+    "TRY":"🇹🇷","HUF":"🇭🇺","RUB":"🇷🇺","CNH":"🇨🇳",
+    "INR":"🇮🇳","PHP":"🇵🇭","DZD":"🇩🇿","BDT":"🇧🇩",
+    "EGP":"🇪🇬","CLP":"🇨🇱","PKR":"🇵🇰","COP":"🇨🇴",
+    "ARS":"🇦🇷","MYR":"🇲🇾","BRL":"🇧🇷","IDR":"🇮🇩",
+    "MXN":"🇲🇽","THB":"🇹🇭","VND":"🇻🇳","SGD":"🇸🇬",
+    "KES":"🇰🇪","NGN":"🇳🇬","ZAR":"🇿🇦","UAH":"🇺🇦",
+    "YER":"🇾🇪","LBP":"🇱🇧","MAD":"🇲🇦","TND":"🇹🇳",
+    "AED":"🇦🇪","BHD":"🇧🇭","JOD":"🇯🇴","OMR":"🇴🇲",
+    "QAR":"🇶🇦","SAR":"🇸🇦","CNY":"🇨🇳"
 }
 
 def display_pair_name(name):
@@ -371,6 +353,8 @@ async def discover_asset_variants_by_id(client,asset_code):
 
 async def get_candles(client,asset_code,timeframe):
     variants=get_asset_variants(asset_code)
+
+    # CNY OTC ONLY: discover real asset name using active ID
     discovered=await discover_asset_variants_by_id(client,asset_code)
     for item in discovered:
         if item not in variants:
@@ -383,7 +367,12 @@ async def get_candles(client,asset_code,timeframe):
         for variant in variants:
             try:
                 raw=await asyncio.wait_for(
-                    raw_method(variant,timeframe,CANDLE_COUNT,now_utc),
+                    raw_method(
+                        variant,
+                        timeframe,
+                        CANDLE_COUNT,
+                        now_utc
+                    ),
                     timeout=CANDLE_TIMEOUT
                 )
                 if raw is not None:
@@ -396,76 +385,152 @@ async def get_candles(client,asset_code,timeframe):
                         if "open" in df.columns and "close" in df.columns:
                             for c in ("open","high","low","close","volume"):
                                 if c in df.columns:
-                                    df[c]=pd.to_numeric(df[c],errors="coerce")
-                            df=df.dropna(subset=["open","close"])
+                                    df[c]=pd.to_numeric(
+                                        df[c],
+                                        errors="coerce"
+                                    )
+                            df=df.dropna(
+                                subset=["open","close"]
+                            )
                             if len(df)>=2:
-                                print(f"🟢 CANDLES RAW: {variant} -> {len(df)}",flush=True)
+                                print(
+                                    f"🟢 CANDLES RAW: {variant} -> {len(df)}",
+                                    flush=True
+                                )
                                 return df
+
             except TypeError:
                 try:
                     raw=await asyncio.wait_for(
-                        raw_method(variant,timeframe,CANDLE_COUNT),
+                        raw_method(
+                            variant,
+                            timeframe,
+                            CANDLE_COUNT
+                        ),
                         timeout=CANDLE_TIMEOUT
                     )
                     if raw is not None:
                         df=pd.DataFrame(raw)
                         if not df.empty:
-                            df.columns=[str(c).lower() for c in df.columns]
+                            df.columns=[
+                                str(c).lower() for c in df.columns
+                            ]
                             if "open" in df.columns and "close" in df.columns:
-                                for c in ("open","high","low","close","volume"):
+                                for c in (
+                                    "open",
+                                    "high",
+                                    "low",
+                                    "close",
+                                    "volume"
+                                ):
                                     if c in df.columns:
-                                        df[c]=pd.to_numeric(df[c],errors="coerce")
-                                df=df.dropna(subset=["open","close"])
+                                        df[c]=pd.to_numeric(
+                                            df[c],
+                                            errors="coerce"
+                                        )
+                                df=df.dropna(
+                                    subset=["open","close"]
+                                )
                                 if len(df)>=2:
-                                    print(f"🟢 CANDLES RAW FALLBACK: {variant}",flush=True)
+                                    print(
+                                        f"🟢 CANDLES RAW FALLBACK: {variant}",
+                                        flush=True
+                                    )
                                     return df
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(
+                        f"🟡 RAW FALLBACK FAIL {variant}: {e}",
+                        flush=True
+                    )
+
             except Exception as e:
-                print(f"🟡 RAW FAIL {variant}: {e}",flush=True)
+                print(
+                    f"🟡 RAW FAIL {variant}: {e}",
+                    flush=True
+                )
 
     df_method=getattr(client,"get_candles_dataframe",None)
     if callable(df_method):
         for variant in variants:
             try:
                 df=await asyncio.wait_for(
-                    df_method(asset=variant,timeframe=timeframe),
+                    df_method(
+                        asset=variant,
+                        timeframe=timeframe
+                    ),
                     timeout=CANDLE_TIMEOUT
                 )
                 if df is not None and not df.empty:
                     df=df.copy()
-                    df.columns=[str(c).lower() for c in df.columns]
+                    df.columns=[
+                        str(c).lower() for c in df.columns
+                    ]
                     if "open" in df.columns and "close" in df.columns:
-                        for c in ("open","high","low","close","volume"):
+                        for c in (
+                            "open",
+                            "high",
+                            "low",
+                            "close",
+                            "volume"
+                        ):
                             if c in df.columns:
-                                df[c]=pd.to_numeric(df[c],errors="coerce")
-                        df=df.dropna(subset=["open","close"])
+                                df[c]=pd.to_numeric(
+                                    df[c],
+                                    errors="coerce"
+                                )
+                        df=df.dropna(
+                            subset=["open","close"]
+                        )
                         if len(df)>=2:
-                            print(f"🟢 CANDLES DF: {variant} -> {len(df)}",flush=True)
+                            print(
+                                f"🟢 CANDLES DF: {variant} -> {len(df)}",
+                                flush=True
+                            )
                             return df
             except Exception as e:
-                print(f"🟡 DF FAIL {variant}: {e}",flush=True)
+                print(
+                    f"🟡 DF FAIL {variant}: {e}",
+                    flush=True
+                )
+
     return None
 
 def calculate_rsi(series,period=14):
     delta=series.diff()
     gain=delta.clip(lower=0)
     loss=-delta.clip(upper=0)
-    avg_gain=gain.rolling(period,min_periods=period).mean()
-    avg_loss=loss.rolling(period,min_periods=period).mean()
+    avg_gain=gain.rolling(
+        period,
+        min_periods=period
+    ).mean()
+    avg_loss=loss.rolling(
+        period,
+        min_periods=period
+    ).mean()
     rs=avg_gain/avg_loss.replace(0,np.nan)
     return 100-(100/(1+rs))
 
 def calculate_accuracy(call_count,put_count):
     strongest=max(call_count,put_count)
-    return {5:90,4:80,3:60,2:40,1:20,0:0}.get(strongest,0)
+    return {
+        5:90,
+        4:80,
+        3:60,
+        2:40,
+        1:20,
+        0:0
+    }.get(strongest,0)
 
 def sr_filter(df,price):
     lookback=min(50,len(df))
     recent=df.tail(lookback)
     support=float(recent["low"].min())
     resistance=float(recent["high"].max())
-    span=max(resistance-support,abs(price)*0.001,1e-12)
+    span=max(
+        resistance-support,
+        abs(price)*0.001,
+        1e-12
+    )
     near_support=abs(price-support)<=span*0.08
     near_resistance=abs(resistance-price)<=span*0.08
     if near_support and not near_resistance:
@@ -474,14 +539,32 @@ def sr_filter(df,price):
         return False,support,resistance
     return True,support,resistance
 
-async def ask_gemini(asset,timeframe,expiry,df,higher_signal,trend_signal,
-                     rsi_signal,current_signal,previous_signal,call_count,
-                     put_count,support,resistance,price):
+async def ask_gemini(
+    asset,
+    timeframe,
+    expiry,
+    df,
+    higher_signal,
+    trend_signal,
+    rsi_signal,
+    current_signal,
+    previous_signal,
+    call_count,
+    put_count,
+    support,
+    resistance,
+    price
+):
     if not GEMINI_API_KEY:
         return "ERROR"
+
     try:
-        recent=df.tail(20)[["open","high","low","close"]]
+        recent=df.tail(20)[
+            ["open","high","low","close"]
+        ]
+
         rows=[]
+
         for _,r in recent.iterrows():
             rows.append({
                 "open":round(float(r["open"]),8),
@@ -489,7 +572,15 @@ async def ask_gemini(asset,timeframe,expiry,df,higher_signal,trend_signal,
                 "low":round(float(r["low"]),8),
                 "close":round(float(r["close"]),8)
             })
-        direction="CALL" if call_count>put_count else "PUT" if put_count>call_count else "WAIT"
+
+        direction=(
+            "CALL"
+            if call_count>put_count
+            else "PUT"
+            if put_count>call_count
+            else "WAIT"
+        )
+
         prompt=f"""
 You are a conservative market-analysis confirmation engine.
 You are NOT placing trades.
@@ -517,54 +608,149 @@ SELL
 or
 WAIT
 """
+
         def call_ai():
-            url=f"https://generativelanguage.googleapis.com/v1beta/models/{AI_MODEL}:generateContent"
+            url=(
+                f"https://generativelanguage.googleapis.com/"
+                f"v1beta/models/{AI_MODEL}:generateContent"
+            )
+
             response=requests.post(
                 url,
                 headers={
                     "Content-Type":"application/json",
                     "x-goog-api-key":GEMINI_API_KEY
                 },
-                json={"contents":[{"parts":[{"text":prompt}]}]},
+                json={
+                    "contents":[
+                        {
+                            "parts":[
+                                {"text":prompt}
+                            ]
+                        }
+                    ]
+                },
                 timeout=30
             )
+
             if response.status_code!=200:
-                print("GEMINI HTTP ERROR:",response.status_code,flush=True)
+                print(
+                    "GEMINI HTTP ERROR:",
+                    response.status_code,
+                    flush=True
+                )
                 return ""
+
             data=response.json()
+
             try:
-                return data["candidates"][0]["content"]["parts"][0]["text"]
+                return data[
+                    "candidates"
+                ][0][
+                    "content"
+                ][
+                    "parts"
+                ][0]["text"]
             except Exception:
                 return ""
-        answer=(await asyncio.to_thread(call_ai)).strip().upper()
+
+        answer=(
+            await asyncio.to_thread(call_ai)
+        ).strip().upper()
+
         if re.search(r"\bBUY\b",answer):
             return "BUY"
+
         if re.search(r"\bSELL\b",answer):
             return "SELL"
+
         if re.search(r"\bWAIT\b",answer):
             return "WAIT"
+
         return "ERROR"
+
     except Exception as e:
-        print("GEMINI AI ERROR:",repr(e),flush=True)
+        print(
+            "GEMINI AI ERROR:",
+            repr(e),
+            flush=True
+        )
         return "ERROR"
 
 def direction_text(value):
     return value if value else "NEUTRAL ⚪"
 
-def build_signal_panel(asset,final_signal,technical,accuracy,timeframe,
-                       expiry,trend,rsi_signal,current_signal,
-                       previous_signal,higher_signal,call_count,put_count,
-                       price,ma10,ma50,rsi,sr_pass,support,resistance,
-                       gemini):
-    final_icon="🟢" if final_signal=="BUY" else "🔴" if final_signal=="SELL" else "⚪"
-    tech_icon="CALL" if call_count>put_count else "PUT" if put_count>call_count else "WAIT"
-    sr_text="PASS ✅" if sr_pass else "BLOCKED ❌"
-    ai_icon="🟢" if gemini=="BUY" else "🔴" if gemini=="SELL" else "⚪"
+def build_signal_panel(
+    asset,
+    final_signal,
+    technical,
+    accuracy,
+    timeframe,
+    expiry,
+    trend,
+    rsi_signal,
+    current_signal,
+    previous_signal,
+    higher_signal,
+    call_count,
+    put_count,
+    price,
+    ma10,
+    ma50,
+    rsi,
+    sr_pass,
+    support,
+    resistance,
+    gemini
+):
+    final_icon=(
+        "🟢"
+        if final_signal=="BUY"
+        else
+        "🔴"
+        if final_signal=="SELL"
+        else
+        "⚪"
+    )
+
+    tech_icon=(
+        "CALL"
+        if call_count>put_count
+        else
+        "PUT"
+        if put_count>call_count
+        else
+        "WAIT"
+    )
+
+    sr_text=(
+        "PASS ✅"
+        if sr_pass
+        else
+        "BLOCKED ❌"
+    )
+
+    ai_icon=(
+        "🟢"
+        if gemini=="BUY"
+        else
+        "🔴"
+        if gemini=="SELL"
+        else
+        "⚪"
+    )
+
     reason=""
+
     if final_signal=="WAIT":
-        reason="\n❌ Technical confirmation-ku 4/5 ama 5/5 ma gaarin.\n"
+        reason=(
+            "\n❌ Technical confirmation-ku "
+            "4/5 ama 5/5 ma gaarin.\n"
+        )
+
         if not sr_pass:
             reason="\n❌ S/R filter ayaa BLOCKED.\n"
+
     return (
         "━━━━━━━━━━━━━━━━━━━━\n"
         "🤖 NAASIRFX AI SIGNAL\n"
@@ -585,7 +771,7 @@ def build_signal_panel(asset,final_signal,technical,accuracy,timeframe,
         f"⏫ Higher TF:   {higher_signal}\n\n"
         f"🟢 CALL: {call_count}/5\n"
         f"🔴 PUT: {put_count}/5\n\n"
-         "━━━━━━━━━━━━━━━━━━━━\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
         "📐 MARKET DATA\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         f"💰 Price: {price:.8f}\n"
@@ -606,11 +792,24 @@ def build_signal_panel(asset,final_signal,technical,accuracy,timeframe,
         "━━━━━━━━━━━━━━━━━━━━"
     )
 
-async def get_signal(asset_code,timeframe,timeframe_name,expiry_name,display_asset):
+async def get_signal(
+    asset_code,
+    timeframe,
+    timeframe_name,
+    expiry_name,
+    display_asset
+):
     client=None
+
     try:
         client=await connect_client()
-        df=await get_candles(client,asset_code,timeframe)
+
+        df=await get_candles(
+            client,
+            asset_code,
+            timeframe
+        )
+
         if df is None or df.empty:
             return (
                 "━━━━━━━━━━━━━━━━━━━━\n"
@@ -625,6 +824,7 @@ async def get_signal(asset_code,timeframe,timeframe_name,expiry_name,display_ass
                 "⚠️ SIGNAL ONLY\n"
                 "━━━━━━━━━━━━━━━━━━━━"
             )
+
         if len(df)<55:
             return (
                 "━━━━━━━━━━━━━━━━━━━━\n"
@@ -641,9 +841,13 @@ async def get_signal(asset_code,timeframe,timeframe_name,expiry_name,display_ass
             )
 
         df=df.copy()
+
         df["MA10"]=df["close"].rolling(10).mean()
         df["MA50"]=df["close"].rolling(50).mean()
-        df["RSI"]=calculate_rsi(df["close"],14)
+        df["RSI"]=calculate_rsi(
+            df["close"],
+            14
+        )
 
         latest=df.iloc[-1]
         previous=df.iloc[-2]
@@ -687,14 +891,21 @@ async def get_signal(asset_code,timeframe,timeframe_name,expiry_name,display_ass
             previous_signal="NEUTRAL ⚪"
 
         higher_tf=HIGHER_TIMEFRAME[timeframe]
+
         if higher_tf==timeframe:
             higher_signal="NEUTRAL ⚪"
         else:
-            higher_df=await get_candles(client,asset_code,higher_tf)
+            higher_df=await get_candles(
+                client,
+                asset_code,
+                higher_tf
+            )
+
             if higher_df is None or len(higher_df)<1:
                 higher_signal="NEUTRAL ⚪"
             else:
                 h=higher_df.iloc[-1]
+
                 if float(h["close"])>float(h["open"]):
                     higher_signal="CALL 🟢"
                 elif float(h["close"])<float(h["open"]):
@@ -704,16 +915,38 @@ async def get_signal(asset_code,timeframe,timeframe_name,expiry_name,display_ass
 
         call_count=0
         put_count=0
-        for value in (trend,rsi_signal,current_signal,previous_signal,higher_signal):
+
+        for value in (
+            trend,
+            rsi_signal,
+            current_signal,
+            previous_signal,
+            higher_signal
+        ):
             if value.startswith("CALL"):
                 call_count+=1
             elif value.startswith("PUT"):
                 put_count+=1
 
-        technical=f"CALL {call_count}/5" if call_count>put_count else f"PUT {put_count}/5" if put_count>call_count else "WAIT"
-        accuracy=calculate_accuracy(call_count,put_count)
+        technical=(
+            f"CALL {call_count}/5"
+            if call_count>put_count
+            else
+            f"PUT {put_count}/5"
+            if put_count>call_count
+            else
+            "WAIT"
+        )
 
-        sr_pass,support,resistance=sr_filter(df,price)
+        accuracy=calculate_accuracy(
+            call_count,
+            put_count
+        )
+
+        sr_pass,support,resistance=sr_filter(
+            df,
+            price
+        )
 
         gemini=await ask_gemini(
             display_asset,
@@ -733,6 +966,7 @@ async def get_signal(asset_code,timeframe,timeframe_name,expiry_name,display_ass
         )
 
         final_signal="WAIT"
+
         if call_count>=4 and sr_pass:
             final_signal="BUY"
         elif put_count>=4 and sr_pass:
@@ -761,8 +995,14 @@ async def get_signal(asset_code,timeframe,timeframe_name,expiry_name,display_ass
             resistance,
             gemini
         )
+
     except Exception as e:
-        print("SIGNAL ERROR:",repr(e),flush=True)
+        print(
+            "SIGNAL ERROR:",
+            repr(e),
+            flush=True
+        )
+
         return (
             "━━━━━━━━━━━━━━━━━━━━\n"
             "🤖 NAASIRFX AI SIGNAL\n"
@@ -776,7 +1016,7 @@ async def get_signal(asset_code,timeframe,timeframe_name,expiry_name,display_ass
             "⚠️ SIGNAL ONLY\n"
             "━━━━━━━━━━━━━━━━━━━━"
         )
-    finally:
+finally:
         if client is not None:
             try:
                 await client.disconnect()
@@ -789,10 +1029,14 @@ async def start(update:Update,context:ContextTypes.DEFAULT_TYPE):
         ["⏱ TIMEFRAME","⌛ EXPIRY"],
         ["ℹ️ STATUS"]
     ]
+
     await update.message.reply_text(
         "👋 Soo dhawoow NAASIRFX AI SIGNAL\n\n"
         "Dooro waxa aad rabto:",
-        reply_markup=ReplyKeyboardMarkup(keyboard,resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard,
+            resize_keyboard=True
+        )
     )
 
 async def show_pair_categories(update):
@@ -801,68 +1045,126 @@ async def show_pair_categories(update):
         ["📈 Stocks","📈 Stocks OTC"],
         ["🔙 BACK"]
     ]
+
     await update.message.reply_text(
         "📋 PAIRS\n\nDooro market-ka:",
-        reply_markup=ReplyKeyboardMarkup(keyboard,resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard,
+            resize_keyboard=True
+        )
     )
 
 async def show_pairs(update,category):
     assets=CATEGORIES[category]
+
     names=[]
+
     for name in assets.keys():
-        if category in ("💱 Forex","💱 Forex OTC"):
-            names.append(display_pair_name(name))
+        if category in (
+            "💱 Forex",
+            "💱 Forex OTC"
+        ):
+            names.append(
+                display_pair_name(name)
+            )
         else:
             names.append(name)
-    rows=button_rows(names,2)
+
+    rows=button_rows(
+        names,
+        2
+    )
+
     rows.append(["🔙 BACK"])
+
     await update.message.reply_text(
         f"{category}\n\n"
         f"📊 {len(assets)} assets\n\n"
         "Dooro Pair-ka:",
-        reply_markup=ReplyKeyboardMarkup(rows,resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(
+            rows,
+            resize_keyboard=True
+        )
     )
 
 async def show_timeframes(update):
-    rows=button_rows(list(TIMEFRAMES.keys()),2)
+    rows=button_rows(
+        list(TIMEFRAMES.keys()),
+        2
+    )
+
     rows.append(["🔙 BACK"])
+
     await update.message.reply_text(
         "⏱ TIMEFRAME\n\nDooro Timeframe-ka:",
-        reply_markup=ReplyKeyboardMarkup(rows,resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(
+            rows,
+            resize_keyboard=True
+        )
     )
 
 async def show_expiries(update):
-    rows=button_rows(list(EXPIRIES.keys()),2)
+    rows=button_rows(
+        list(EXPIRIES.keys()),
+        2
+    )
+
     rows.append(["🔙 BACK"])
+
     await update.message.reply_text(
         "⌛ EXPIRY\n\nDooro Expiry-ga:",
-        reply_markup=ReplyKeyboardMarkup(rows,resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(
+            rows,
+            resize_keyboard=True
+        )
     )
 
 async def send_pair_signal(update):
     user_id=update.effective_user.id
+
     category=user_category.get(user_id)
+
     if not category:
-        await update.message.reply_text("❌ Marka hore 📋 PAIRS dooro.")
+        await update.message.reply_text(
+            "❌ Marka hore 📋 PAIRS dooro."
+        )
         return
 
     selected_text=update.message.text
-    asset_name=resolve_pair_name(category,selected_text)
+
+    asset_name=resolve_pair_name(
+        category,
+        selected_text
+    )
+
     if not asset_name:
         return
 
-    asset_code=CATEGORIES[category].get(asset_name)
+    asset_code=CATEGORIES[
+        category
+    ].get(asset_name)
+
     if not asset_code:
         return
 
-    timeframe_name=user_timeframe.get(user_id)
-    expiry_name=user_expiry.get(user_id)
+    timeframe_name=user_timeframe.get(
+        user_id
+    )
+
+    expiry_name=user_expiry.get(
+        user_id
+    )
 
     if not timeframe_name:
-        await update.message.reply_text("❌ Marka hore ⏱ TIMEFRAME dooro.")
+        await update.message.reply_text(
+            "❌ Marka hore ⏱ TIMEFRAME dooro."
+        )
         return
+
     if not expiry_name:
-        await update.message.reply_text("❌ Marka hore ⌛ EXPIRY dooro.")
+        await update.message.reply_text(
+            "❌ Marka hore ⌛ EXPIRY dooro."
+        )
         return
 
     await update.message.reply_text(
@@ -874,22 +1176,43 @@ async def send_pair_signal(update):
         TIMEFRAMES[timeframe_name],
         timeframe_name,
         expiry_name,
-        display_pair_name(asset_name) if category in ("💱 Forex","💱 Forex OTC") else asset_name
+        (
+            display_pair_name(asset_name)
+            if category in (
+                "💱 Forex",
+                "💱 Forex OTC"
+            )
+            else asset_name
+        )
     )
 
     pair_names=[]
+
     for name in CATEGORIES[category].keys():
-        if category in ("💱 Forex","💱 Forex OTC"):
-            pair_names.append(display_pair_name(name))
+        if category in (
+            "💱 Forex",
+            "💱 Forex OTC"
+        ):
+            pair_names.append(
+                display_pair_name(name)
+            )
         else:
             pair_names.append(name)
 
-    rows=button_rows(pair_names,2)
+    rows=button_rows(
+        pair_names,
+        2
+    )
+
     rows.append(["🔙 BACK"])
 
+    # Pair menu stays open after signal
     await update.message.reply_text(
         signal,
-        reply_markup=ReplyKeyboardMarkup(rows,resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(
+            rows,
+            resize_keyboard=True
+        )
     )
 
 async def message_handler(update:Update,context:ContextTypes.DEFAULT_TYPE):
@@ -928,19 +1251,27 @@ async def message_handler(update:Update,context:ContextTypes.DEFAULT_TYPE):
             ["⏱ TIMEFRAME","⌛ EXPIRY"],
             ["ℹ️ STATUS"]
         ]
+
         await update.message.reply_text(
             "🏠 Main Menu",
-            reply_markup=ReplyKeyboardMarkup(keyboard,resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup(
+                keyboard,
+                resize_keyboard=True
+            )
         )
         return
 
     if text in CATEGORIES:
         user_category[user_id]=text
-        await show_pairs(update,text)
+        await show_pairs(
+            update,
+            text
+        )
         return
 
     if text in TIMEFRAMES:
         user_timeframe[user_id]=text
+
         await update.message.reply_text(
             f"✅ Timeframe: {text}\n\n"
             "⌛ Expiry-ga isma beddelin."
@@ -949,14 +1280,21 @@ async def message_handler(update:Update,context:ContextTypes.DEFAULT_TYPE):
 
     if text in EXPIRIES:
         user_expiry[user_id]=text
+
         await update.message.reply_text(
             f"✅ Expiry: {text}\n\n"
             "⏱ Timeframe-ka isma beddelin."
         )
         return
 
-    category=user_category.get(user_id)
-    if category and resolve_pair_name(category,text):
+    category=user_category.get(
+        user_id
+    )
+
+    if category and resolve_pair_name(
+        category,
+        text
+    ):
         await send_pair_signal(update)
         return
 
@@ -967,34 +1305,74 @@ async def message_handler(update:Update,context:ContextTypes.DEFAULT_TYPE):
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
-        self.send_header("Content-type","text/plain")
+        self.send_header(
+            "Content-type",
+            "text/plain"
+        )
         self.end_headers()
-        self.wfile.write(b"NAASIRFX is running")
+        self.wfile.write(
+            b"NAASIRFX is running"
+        )
+
     def log_message(self,format,*args):
         return
 
 def run_health_server():
-    port=int(os.getenv("PORT","10000"))
-    server=HTTPServer(("0.0.0.0",port),HealthHandler)
-    print(f"🟢 HTTP SERVER RUNNING ON 0.0.0.0:{port}",flush=True)
+    port=int(
+        os.getenv(
+            "PORT",
+            "10000"
+        )
+    )
+
+    server=HTTPServer(
+        ("0.0.0.0",port),
+        HealthHandler
+    )
+
+    print(
+        f"🟢 HTTP SERVER RUNNING ON 0.0.0.0:{port}",
+        flush=True
+    )
+
     server.serve_forever()
 
 async def telegram_post_init(application):
     try:
-        await application.bot.delete_webhook(drop_pending_updates=True)
-        print("🧹 Telegram webhook cleaned.",flush=True)
+        await application.bot.delete_webhook(
+            drop_pending_updates=True
+        )
+
+        print(
+            "🧹 Telegram webhook cleaned.",
+            flush=True
+        )
+
     except Exception as e:
-        print("⚠️ Telegram cleanup:",e,flush=True)
+        print(
+            "⚠️ Telegram cleanup:",
+            e,
+            flush=True
+        )
 
 def main():
     if not TOKEN:
-        print("❌ TELEGRAM_BOT_TOKEN lama helin.",flush=True)
+        print(
+            "❌ TELEGRAM_BOT_TOKEN lama helin.",
+            flush=True
+        )
         return
 
     if not PO_SSID:
-        print("⚠️ PO_SSID lama helin.",flush=True)
+        print(
+            "⚠️ PO_SSID lama helin.",
+            flush=True
+        )
 
-    Thread(target=run_health_server,daemon=True).start()
+    Thread(
+        target=run_health_server,
+        daemon=True
+    ).start()
 
     app=(
         Application.builder()
@@ -1003,7 +1381,13 @@ def main():
         .build()
     )
 
-    app.add_handler(CommandHandler("start",start))
+    app.add_handler(
+        CommandHandler(
+            "start",
+            start
+        )
+    )
+
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
@@ -1011,7 +1395,10 @@ def main():
         )
     )
 
-    print("🟢 NAASIRFX AI SIGNAL IS RUNNING",flush=True)
+    print(
+        "🟢 NAASIRFX AI SIGNAL IS RUNNING",
+        flush=True
+    )
 
     app.run_polling(
         drop_pending_updates=True,
