@@ -63,6 +63,7 @@ HIGHER_TIMEFRAME_NAME = {
     14400: "4 Hours"
 }
 
+
 FOREX_PAIRS = {
     "EUR/USD": "EURUSD",
     "GBP/USD": "GBPUSD",
@@ -89,6 +90,7 @@ FOREX_PAIRS = {
     "CAD/CHF": "CADCHF",
     "CHF/JPY": "CHFJPY"
 }
+
 
 FOREX_OTC_PAIRS = {
     "EUR/USD OTC": "EURUSD_otc",
@@ -151,6 +153,7 @@ FOREX_OTC_PAIRS = {
     "SAR/USD OTC": "SARUSD_otc"
 }
 
+
 STOCK_NAMES = {
     "🍎 Apple": "#AAPL",
     "💳 American Express": "#AXP",
@@ -194,6 +197,7 @@ STOCK_NAMES = {
     "📡 AT&T": "#T",
     "📡 Verizon": "#VZ"
 }
+
 
 STOCK_OTC_NAMES = {
     "🍎 Apple OTC": "#AAPL_otc",
@@ -239,6 +243,7 @@ STOCK_OTC_NAMES = {
     "📡 Verizon OTC": "#VZ_otc"
 }
 
+
 CATEGORIES = {
     "💱 Forex": FOREX_PAIRS,
     "💱 Forex OTC": FOREX_OTC_PAIRS,
@@ -246,8 +251,7 @@ CATEGORIES = {
     "📈 Stocks OTC": STOCK_OTC_NAMES
 }
 
-# IDs are kept only as reference/discovery metadata.
-# THEY ARE NEVER SENT TO get_candles().
+
 CNY_OTC_ASSETS = {
     "AEDCNY_otc": 538,
     "BHDCNY_otc": 536,
@@ -256,6 +260,7 @@ CNY_OTC_ASSETS = {
     "QARCNY_otc": 542,
     "SARCNY_otc": 540
 }
+
 
 user_category = {}
 user_timeframe = {}
@@ -281,7 +286,9 @@ def button_rows(items, size=2):
 
 async def connect_client():
     if not PO_SSID:
-        raise RuntimeError("POCKET_OPTION_SSID / PO_SSID lama helin.")
+        raise RuntimeError(
+            "POCKET_OPTION_SSID / PO_SSID lama helin."
+        )
 
     client = AsyncPocketOptionClient(
         PO_SSID,
@@ -295,7 +302,11 @@ async def connect_client():
             timeout=CONNECT_TIMEOUT
         )
 
-        print("🟢 PO CONNECT: SUCCESS", flush=True)
+        print(
+            "🟢 PO CONNECT: SUCCESS",
+            flush=True
+        )
+
         return client
 
     except Exception:
@@ -307,94 +318,240 @@ async def connect_client():
         raise
 
 
+# ============================================================
+# ASSET VARIANTS
+# ============================================================
+
 def get_asset_variants(asset_code):
+
     original = str(asset_code).strip()
     variants = []
 
     def add(value):
-        if value and value not in variants:
-            variants.append(value)
 
-    add(original)
-    add(original.replace("/", ""))
-
-    if original.lower().endswith("_otc"):
-        base = original[:-4]
-
-        add(base + "_otc")
-        add(base.upper() + "_otc")
-        add(base.upper() + "-OTC")
-        add(base.upper() + " OTC")
-        add(base.upper() + "_OTC")
-
-        if base.startswith("#"):
-            clean = base[1:]
-            add("#" + clean + "_otc")
-            add(clean + "_otc")
-
-    else:
-        add(original + "_otc")
-        add(original.replace("/", "") + "_otc")
-
-    return variants
-
-
-async def discover_asset_variants_by_id(client, asset_code):
-    # CNY IDs are NOT passed into candle methods.
-    # This discovery is only for finding a symbolic name if
-    # the connected client exposes the asset list.
-
-    asset_id = CNY_OTC_ASSETS.get(asset_code)
-
-    if asset_id is None:
-        return []
-
-    method = getattr(client, "get_assets", None)
-
-    if not callable(method):
-        return []
-
-    try:
-        result = method()
-
-        if inspect.isawaitable(result):
-            assets = await asyncio.wait_for(
-                result,
-                timeout=10
-            )
-        else:
-            assets = result
-
-    except Exception as e:
-        print(
-            f"🟡 ASSET DISCOVERY ERROR {asset_code}: {e}",
-            flush=True
-        )
-        return []
-
-    found = []
-
-    def add(value):
         if value is None:
             return
 
         value = str(value).strip()
 
-        if value and value not in found:
-            found.append(value)
+        if value and value not in variants:
+            variants.append(value)
+
+    add(original)
+
+    # Direct original without slash.
+    add(
+        original.replace("/", "")
+    )
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # Convert display names such as:
+    # AED/CNY OTC
+    # AED/CNY OTC
+    # AED-CNY OTC
+    # into:
+    # AEDCNY_otc
+    # --------------------------------------------------------
+
+    clean = original.upper().strip()
+
+    clean = clean.replace(
+        " OTC",
+        ""
+    )
+
+    clean = clean.replace(
+        "_OTC",
+        ""
+    )
+
+    clean = clean.replace(
+        "-OTC",
+        ""
+    )
+
+    clean = clean.replace(
+        "/",
+        ""
+    )
+
+    clean = clean.replace(
+        "-",
+        ""
+    )
+
+    clean = clean.replace(
+        " ",
+        ""
+    )
+
+    if clean:
+
+        if original.upper().endswith("OTC") or asset_code in CNY_OTC_ASSETS:
+
+            add(
+                clean + "_otc"
+            )
+
+            add(
+                clean.upper() + "_otc"
+            )
+
+            add(
+                clean.upper() + "_OTC"
+            )
+
+            add(
+                clean.upper() + "-OTC"
+            )
+
+            add(
+                clean.upper() + " OTC"
+            )
+
+    if original.lower().endswith("_otc"):
+
+        base = original[:-4]
+
+        add(
+            base + "_otc"
+        )
+
+        add(
+            base.upper() + "_otc"
+        )
+
+        add(
+            base.upper() + "_OTC"
+        )
+
+        add(
+            base.upper() + "-OTC"
+        )
+
+        add(
+            base.upper() + " OTC"
+        )
+
+    else:
+
+        add(
+            original + "_otc"
+        )
+
+        add(
+            original.replace(
+                "/",
+                ""
+            ) + "_otc"
+        )
+
+    return variants
+
+
+# ============================================================
+# CNY ASSET DISCOVERY
+# ============================================================
+
+async def discover_asset_variants_by_id(
+    client,
+    asset_code
+):
+
+    if asset_code not in CNY_OTC_ASSETS:
+        return []
+
+    asset_id = CNY_OTC_ASSETS[
+        asset_code
+    ]
+
+    method = getattr(
+        client,
+        "get_assets",
+        None
+    )
+
+    if not callable(method):
+        print(
+            f"🟡 get_assets() lama jiro "
+            f"client-ka: {asset_code}",
+            flush=True
+        )
+        return []
+
+    try:
+
+        result = method()
+
+        if inspect.isawaitable(result):
+
+            assets = await asyncio.wait_for(
+                result,
+                timeout=15
+            )
+
+        else:
+            assets = result
+
+    except Exception as e:
+
+        print(
+            f"🟡 ASSET DISCOVERY ERROR "
+            f"{asset_code}: {e}",
+            flush=True
+        )
+
+        return []
+
+    found = []
+
+    def add(value):
+
+        if value is None:
+            return
+
+        value = str(value).strip()
+
+        if not value:
+            return
+
+        # Do not put numeric IDs into candle methods.
+        if value.isdigit():
+            return
+
+        # Convert the returned display name into
+        # a usable Pocket Option symbol too.
+        candidates = get_asset_variants(
+            value
+        )
+
+        for candidate in candidates:
+
+            if candidate not in found:
+                found.append(candidate)
 
     def same_id(value):
+
+        if value is None:
+            return False
+
         try:
             return int(value) == int(asset_id)
+
         except Exception:
-            return str(value).strip() == str(asset_id)
+            return (
+                str(value).strip()
+                == str(asset_id)
+            )
 
     id_keys = (
         "id",
         "asset_id",
         "active_id",
         "activeId",
-        "symbol_id"
+        "symbol_id",
+        "symbolId"
     )
 
     name_keys = (
@@ -403,8 +560,102 @@ async def discover_asset_variants_by_id(client, asset_code):
         "name",
         "ticker",
         "code",
-        "pair"
+        "pair",
+        "instrument",
+        "display_name",
+        "displayName"
     )
+
+    def inspect_item(item):
+
+        if isinstance(item, dict):
+
+            ids = []
+
+            for key in id_keys:
+
+                if key in item:
+                    ids.append(
+                        item.get(key)
+                    )
+
+            if any(
+                same_id(v)
+                for v in ids
+            ):
+
+                for key in name_keys:
+                    if key in item:
+                        add(
+                            item.get(key)
+                        )
+
+            # Also inspect nested dictionaries.
+            for value in item.values():
+
+                if isinstance(
+                    value,
+                    (dict, list, tuple)
+                ):
+                    inspect_item(value)
+
+        elif isinstance(
+            item,
+            (list, tuple, set)
+        ):
+
+            for value in item:
+                inspect_item(value)
+
+        else:
+
+            ids = []
+
+            for key in id_keys:
+
+                try:
+                    value = getattr(
+                        item,
+                        key,
+                        None
+                    )
+
+                    ids.append(value)
+
+                except Exception:
+                    pass
+
+            if any(
+                same_id(v)
+                for v in ids
+            ):
+
+                for key in name_keys:
+
+                    try:
+
+                        value = getattr(
+                            item,
+                            key,
+                            None
+                        )
+
+                        add(value)
+
+                    except Exception:
+                        pass
+
+    # --------------------------------------------------------
+    # Handle dictionaries such as:
+    # {
+    #   "538": "AED/CNY OTC"
+    # }
+    #
+    # and:
+    # {
+    #   "AED/CNY OTC": 538
+    # }
+    # --------------------------------------------------------
 
     if isinstance(assets, dict):
 
@@ -413,74 +664,82 @@ async def discover_asset_variants_by_id(client, asset_code):
             if same_id(key):
 
                 if isinstance(value, dict):
-                    for k in name_keys:
-                        add(value.get(k))
+                    inspect_item(value)
                 else:
                     add(value)
 
             if same_id(value):
-                add(key)
 
-            if isinstance(value, dict):
+                if isinstance(key, str):
+                    add(key)
 
-                ids = [
-                    value.get(k)
-                    for k in id_keys
-                ]
+            inspect_item(
+                {
+                    "key": key,
+                    "value": value
+                }
+            )
 
-                if any(same_id(v) for v in ids):
-                    for k in name_keys:
-                        add(value.get(k))
+        # Full recursive inspection.
+        inspect_item(assets)
 
-        candidates = list(assets.values())
+    elif isinstance(
+        assets,
+        (list, tuple, set)
+    ):
 
-    elif isinstance(assets, (list, tuple, set)):
-        candidates = list(assets)
+        for item in assets:
+            inspect_item(item)
 
     else:
-        candidates = [assets]
 
-    for item in candidates:
+        inspect_item(assets)
 
-        if isinstance(item, dict):
+    # --------------------------------------------------------
+    # Most important:
+    # Always put the known exact symbol first.
+    # --------------------------------------------------------
 
-            ids = [
-                item.get(k)
-                for k in id_keys
-            ]
+    exact_symbol = asset_code
 
-            if any(same_id(v) for v in ids):
-                for k in name_keys:
-                    add(item.get(k))
+    ordered = []
 
-        else:
+    if exact_symbol not in ordered:
+        ordered.append(
+            exact_symbol
+        )
 
-            ids = []
+    for item in found:
 
-            for k in id_keys:
-                try:
-                    ids.append(getattr(item, k, None))
-                except Exception:
-                    pass
+        if item not in ordered:
+            ordered.append(item)
 
-            if any(same_id(v) for v in ids):
+    if ordered:
 
-                for k in name_keys:
-                    try:
-                        add(getattr(item, k, None))
-                    except Exception:
-                        pass
-
-    if found:
         print(
-            f"🟢 ASSET DISCOVERY {asset_code}: {found}",
+            f"🟢 CNY ASSET DISCOVERY "
+            f"{asset_code} ID={asset_id}: "
+            f"{ordered}",
             flush=True
         )
 
-    return found
+    else:
 
+        print(
+            f"🟡 CNY ASSET NOT FOUND "
+            f"{asset_code} ID={asset_id}",
+            flush=True
+        )
+
+    return ordered
+
+
+# ============================================================
+# CANDLE NORMALIZATION
+# ============================================================
 
 def _find_time_column(df):
+
     candidates = [
         "timestamp",
         "time",
@@ -492,6 +751,7 @@ def _find_time_column(df):
     ]
 
     for column in candidates:
+
         if column in df.columns:
             return column
 
@@ -499,12 +759,19 @@ def _find_time_column(df):
 
 
 def _timestamp_to_seconds(value):
+
     try:
 
-        if isinstance(value, pd.Timestamp):
+        if isinstance(
+            value,
+            pd.Timestamp
+        ):
             return value.timestamp()
 
-        if isinstance(value, datetime):
+        if isinstance(
+            value,
+            datetime
+        ):
 
             if value.tzinfo is None:
                 value = value.replace(
@@ -528,26 +795,39 @@ def _timestamp_to_seconds(value):
 
 
 def normalize_candle_dataframe(raw):
+
     if raw is None:
         return None
 
     try:
 
-        if isinstance(raw, pd.DataFrame):
+        if isinstance(
+            raw,
+            pd.DataFrame
+        ):
+
             df = raw.copy()
 
-        elif isinstance(raw, dict):
+        elif isinstance(
+            raw,
+            dict
+        ):
 
             if all(
-                isinstance(v, (list, tuple, np.ndarray))
+                isinstance(
+                    v,
+                    (list, tuple, np.ndarray)
+                )
                 for v in raw.values()
             ):
+
                 df = pd.DataFrame(raw)
 
             elif isinstance(
                 raw.get("candles"),
                 (list, tuple)
             ):
+
                 df = pd.DataFrame(
                     raw["candles"]
                 )
@@ -556,14 +836,17 @@ def normalize_candle_dataframe(raw):
                 raw.get("data"),
                 (list, tuple)
             ):
+
                 df = pd.DataFrame(
                     raw["data"]
                 )
 
             else:
+
                 df = pd.DataFrame(raw)
 
         else:
+
             df = pd.DataFrame(raw)
 
         if df.empty:
@@ -602,19 +885,25 @@ def normalize_candle_dataframe(raw):
         ):
 
             if column in df.columns:
+
                 df[column] = pd.to_numeric(
                     df[column],
                     errors="coerce"
                 )
 
         df = df.dropna(
-            subset=["open", "close"]
+            subset=[
+                "open",
+                "close"
+            ]
         )
 
         if df.empty:
             return None
 
-        time_column = _find_time_column(df)
+        time_column = _find_time_column(
+            df
+        )
 
         if time_column:
 
@@ -631,6 +920,7 @@ def normalize_candle_dataframe(raw):
                 )
 
         else:
+
             df = df.reset_index(
                 drop=True
             )
@@ -672,7 +962,9 @@ def candle_is_current_or_recent(
     age = time.time() - latest_ts
 
     max_age = (
-        timeframe * (tolerance_bars + 1)
+        timeframe * (
+            tolerance_bars + 1
+        )
         + 15
     )
 
@@ -690,6 +982,10 @@ def candle_is_current_or_recent(
     return True
 
 
+# ============================================================
+# NORMAL CANDLE METHOD
+# ============================================================
+
 async def call_method_flexible(
     method,
     variants,
@@ -703,6 +999,7 @@ async def call_method_flexible(
     for variant in variants:
 
         calls = [
+
             (
                 (
                     variant,
@@ -712,6 +1009,7 @@ async def call_method_flexible(
                 ),
                 {}
             ),
+
             (
                 (
                     variant,
@@ -720,6 +1018,7 @@ async def call_method_flexible(
                 ),
                 {}
             ),
+
             (
                 (),
                 {
@@ -729,6 +1028,7 @@ async def call_method_flexible(
                     "end_time": now_utc
                 }
             ),
+
             (
                 (),
                 {
@@ -747,7 +1047,9 @@ async def call_method_flexible(
                     **kwargs
                 )
 
-                if inspect.isawaitable(result):
+                if inspect.isawaitable(
+                    result
+                ):
 
                     raw = await asyncio.wait_for(
                         result,
@@ -755,6 +1057,7 @@ async def call_method_flexible(
                     )
 
                 else:
+
                     raw = result
 
                 df = normalize_candle_dataframe(
@@ -790,6 +1093,10 @@ async def call_method_flexible(
     return None
 
 
+# ============================================================
+# REALTIME
+# ============================================================
+
 async def try_realtime_candles(
     client,
     variants,
@@ -823,10 +1130,12 @@ async def try_realtime_candles(
         for variant in variants:
 
             calls = [
+
                 (
                     (variant, timeframe),
                     {}
                 ),
+
                 (
                     (),
                     {
@@ -834,6 +1143,7 @@ async def try_realtime_candles(
                         "timeframe": timeframe
                     }
                 ),
+
                 (
                     (variant,),
                     {
@@ -851,7 +1161,9 @@ async def try_realtime_candles(
                         **kwargs
                     )
 
-                    if inspect.isawaitable(result):
+                    if inspect.isawaitable(
+                        result
+                    ):
 
                         raw = await asyncio.wait_for(
                             result,
@@ -859,6 +1171,7 @@ async def try_realtime_candles(
                         )
 
                     else:
+
                         raw = result
 
                     df = normalize_candle_dataframe(
@@ -893,358 +1206,8 @@ async def try_realtime_candles(
 
 
 # ============================================================
-# CNY-ONLY CANDLE SUBSCRIPTION FALLBACK
+# CNY DIRECT SYMBOL RETRIEVAL
 # ============================================================
-
-async def try_cny_subscription(
-    client,
-    asset_code,
-    timeframe
-):
-
-    if asset_code not in CNY_OTC_ASSETS:
-        return None
-
-    print(
-        f"🟡 CNY SUBSCRIPTION FALLBACK: "
-        f"{asset_code} TF={timeframe}s",
-        flush=True
-    )
-
-    subscribe_names = [
-        "subscribe_candles",
-        "subscribe_candle",
-        "start_candle_subscription",
-        "subscribe_symbol"
-    ]
-
-    unsubscribe_names = [
-        "unsubscribe_candles",
-        "unsubscribe_candle",
-        "stop_candle_subscription",
-        "unsubscribe_symbol"
-    ]
-
-    variants = [
-        asset_code,
-        asset_code.upper(),
-        asset_code.replace(
-            "_otc",
-            "_OTC"
-        )
-    ]
-
-    subscribed = False
-    subscription_result = None
-
-    for method_name in subscribe_names:
-
-        method = getattr(
-            client,
-            method_name,
-            None
-        )
-
-        if not callable(method):
-            continue
-
-        print(
-            f"🟢 CNY SUBSCRIBE METHOD FOUND: "
-            f"{method_name}",
-            flush=True
-        )
-
-        for symbol in variants:
-
-            calls = [
-                (
-                    (symbol, timeframe),
-                    {}
-                ),
-                (
-                    (),
-                    {
-                        "asset": symbol,
-                        "timeframe": timeframe
-                    }
-                ),
-                (
-                    (symbol,),
-                    {
-                        "timeframe": timeframe
-                    }
-                ),
-                (
-                    (),
-                    {
-                        "symbol": symbol,
-                        "timeframe": timeframe
-                    }
-                ),
-                (
-                    (symbol,),
-                    {}
-                )
-            ]
-
-            for args, kwargs in calls:
-
-                try:
-
-                    result = method(
-                        *args,
-                        **kwargs
-                    )
-
-                    if inspect.isawaitable(result):
-
-                        subscription_result = await asyncio.wait_for(
-                            result,
-                            timeout=15
-                        )
-
-                    else:
-                        subscription_result = result
-
-                    subscribed = True
-
-                    print(
-                        f"🟢 CNY SUBSCRIBED: "
-                        f"{symbol} "
-                        f"TF={timeframe}s",
-                        flush=True
-                    )
-
-                    break
-
-                except TypeError:
-                    continue
-
-                except Exception as e:
-
-                    print(
-                        f"🟡 CNY SUBSCRIBE FAIL "
-                        f"{symbol}: {e}",
-                        flush=True
-                    )
-
-            if subscribed:
-                break
-
-        if subscribed:
-            break
-
-    if not subscribed:
-        return None
-
-    try:
-
-        # First, see whether subscription itself returned data.
-        df = normalize_candle_dataframe(
-            subscription_result
-        )
-
-        if (
-            df is not None
-            and len(df) >= 2
-        ):
-
-            print(
-                f"🟢 CNY SUBSCRIPTION DATA OK: "
-                f"{asset_code} rows={len(df)}",
-                flush=True
-            )
-
-            return df
-
-        # Then check realtime/live candle methods.
-        realtime = await try_realtime_candles(
-            client,
-            variants,
-            timeframe
-        )
-
-        if (
-            realtime is not None
-            and len(realtime) >= 2
-        ):
-
-            if candle_is_current_or_recent(
-                realtime,
-                timeframe
-            ):
-
-                print(
-                    f"🟢 CNY SUBSCRIPTION LIVE DATA OK: "
-                    f"{asset_code} rows={len(realtime)}",
-                    flush=True
-                )
-
-                return realtime
-
-        # Some clients expose a candle cache after
-        # subscribing. Try the common cache names.
-        cache_names = [
-            "candle_data",
-            "candles",
-            "candle_cache",
-            "_candle_data",
-            "_candles",
-            "_candle_cache"
-        ]
-
-        for cache_name in cache_names:
-
-            cache = getattr(
-                client,
-                cache_name,
-                None
-            )
-
-            if cache is None:
-                continue
-
-            raw = None
-
-            if isinstance(cache, dict):
-
-                for key in variants:
-
-                    if key in cache:
-                        raw = cache[key]
-                        break
-
-                if raw is None:
-
-                    for key, value in cache.items():
-
-                        if str(key).upper() in [
-                            str(v).upper()
-                            for v in variants
-                        ]:
-                            raw = value
-                            break
-
-            else:
-                raw = cache
-
-            df = normalize_candle_dataframe(
-                raw
-            )
-
-            if (
-                df is not None
-                and len(df) >= 2
-            ):
-
-                print(
-                    f"🟢 CNY CACHE CANDLES OK: "
-                    f"{asset_code} "
-                    f"rows={len(df)}",
-                    flush=True
-                )
-
-                return df
-
-        # Give the subscription a little time to populate.
-        for _ in range(3):
-
-            await asyncio.sleep(2)
-
-            realtime = await try_realtime_candles(
-                client,
-                variants,
-                timeframe
-            )
-
-            if (
-                realtime is not None
-                and len(realtime) >= 2
-            ):
-
-                print(
-                    f"🟢 CNY SUBSCRIPTION RETRY OK: "
-                    f"{asset_code} "
-                    f"rows={len(realtime)}",
-                    flush=True
-                )
-
-                return realtime
-
-    finally:
-
-        # Cleanup if this library exposes unsubscribe.
-        for method_name in unsubscribe_names:
-
-            method = getattr(
-                client,
-                method_name,
-                None
-            )
-
-            if not callable(method):
-                continue
-
-            for symbol in variants:
-
-                calls = [
-                    (
-                        (symbol, timeframe),
-                        {}
-                    ),
-                    (
-                        (),
-                        {
-                            "asset": symbol,
-                            "timeframe": timeframe
-                        }
-                    ),
-                    (
-                        (symbol,),
-                        {}
-                    ),
-                    (
-                        (),
-                        {
-                            "symbol": symbol,
-                            "timeframe": timeframe
-                        }
-                    )
-                ]
-
-                done = False
-
-                for args, kwargs in calls:
-
-                    try:
-
-                        result = method(
-                            *args,
-                            **kwargs
-                        )
-
-                        if inspect.isawaitable(result):
-                            await asyncio.wait_for(
-                                result,
-                                timeout=10
-                            )
-
-                        done = True
-                        break
-
-                    except TypeError:
-                        continue
-
-                    except Exception:
-                        break
-
-                if done:
-                    break
-
-            break
-
-    return None
-
 
 async def try_cny_symbol_only(
     client,
@@ -1256,23 +1219,45 @@ async def try_cny_symbol_only(
         return None
 
     print(
-        f"🟡 CNY SYMBOL FALLBACK: "
-        f"{asset_code} TF={timeframe}s",
+        f"🟡 CNY SYMBOL RETRIEVAL: "
+        f"{asset_code} "
+        f"ID={CNY_OTC_ASSETS[asset_code]} "
+        f"TF={timeframe}s",
         flush=True
     )
 
-    variants = [
-        asset_code,
-        asset_code.upper(),
-        asset_code.replace(
-            "_otc",
-            "_OTC"
-        ),
-        asset_code.replace(
-            "_otc",
-            " OTC"
-        )
-    ]
+    variants = []
+
+    # Exact known symbol FIRST.
+    variants.append(
+        asset_code
+    )
+
+    discovered = await discover_asset_variants_by_id(
+        client,
+        asset_code
+    )
+
+    for item in discovered:
+
+        if item not in variants:
+            variants.append(item)
+
+    # Add generated variants last.
+    generated = get_asset_variants(
+        asset_code
+    )
+
+    for item in generated:
+
+        if item not in variants:
+            variants.append(item)
+
+    print(
+        f"🟡 CNY CANDLE SYMBOLS "
+        f"{asset_code}: {variants}",
+        flush=True
+    )
 
     for method_name in (
         "get_candles",
@@ -1288,9 +1273,32 @@ async def try_cny_symbol_only(
         if not callable(method):
             continue
 
+        print(
+            f"🟢 CNY METHOD: "
+            f"{method_name}",
+            flush=True
+        )
+
         for symbol in variants:
 
+            # NEVER send numeric ID.
+            if str(symbol).isdigit():
+                continue
+
             calls = [
+
+                (
+                    (
+                        symbol,
+                        timeframe,
+                        CANDLE_COUNT,
+                        datetime.now(
+                            timezone.utc
+                        )
+                    ),
+                    {}
+                ),
+
                 (
                     (
                         symbol,
@@ -1299,6 +1307,19 @@ async def try_cny_symbol_only(
                     ),
                     {}
                 ),
+
+                (
+                    (),
+                    {
+                        "asset": symbol,
+                        "timeframe": timeframe,
+                        "count": CANDLE_COUNT,
+                        "end_time": datetime.now(
+                            timezone.utc
+                        )
+                    }
+                ),
+
                 (
                     (),
                     {
@@ -1307,6 +1328,7 @@ async def try_cny_symbol_only(
                         "count": CANDLE_COUNT
                     }
                 ),
+
                 (
                     (
                         symbol,
@@ -1314,6 +1336,7 @@ async def try_cny_symbol_only(
                     ),
                     {}
                 ),
+
                 (
                     (),
                     {
@@ -1332,7 +1355,9 @@ async def try_cny_symbol_only(
                         **kwargs
                     )
 
-                    if inspect.isawaitable(result):
+                    if inspect.isawaitable(
+                        result
+                    ):
 
                         raw = await asyncio.wait_for(
                             result,
@@ -1340,6 +1365,7 @@ async def try_cny_symbol_only(
                         )
 
                     else:
+
                         raw = result
 
                     df = normalize_candle_dataframe(
@@ -1357,10 +1383,11 @@ async def try_cny_symbol_only(
                         ):
 
                             print(
-                                f"🟢 CNY SYMBOL CANDLES OK: "
-                                f"{symbol} "
-                                f"TF={timeframe}s "
-                                f"rows={len(df)}",
+                                f"🟢 CNY CANDLES OK: "
+                                f"{asset_code} "
+                                f"SYMBOL={symbol} "
+                                f"METHOD={method_name} "
+                                f"ROWS={len(df)}",
                                 flush=True
                             )
 
@@ -1372,13 +1399,20 @@ async def try_cny_symbol_only(
                 except Exception as e:
 
                     print(
-                        f"🟡 CNY SYMBOL FAIL "
-                        f"{symbol}: {e}",
+                        f"🟡 CNY CANDLE FAIL: "
+                        f"{asset_code} "
+                        f"SYMBOL={symbol} "
+                        f"METHOD={method_name}: "
+                        f"{e}",
                         flush=True
                     )
 
     return None
 
+
+# ============================================================
+# MAIN CANDLE FUNCTION
+# ============================================================
 
 async def get_candles(
     client,
@@ -1390,43 +1424,26 @@ async def get_candles(
         asset_code
     )
 
-    discovered = await discover_asset_variants_by_id(
-        client,
-        asset_code
-    )
-
-    for item in discovered:
-
-        if item not in variants:
-            variants.append(item)
-
-    # ========================================================
-    # CNY FIRST: SYMBOL + SUBSCRIPTION
-    # ========================================================
+    # --------------------------------------------------------
+    # CNY ONLY:
+    # Resolve exact symbolic asset from get_assets()
+    # and retrieve candles using the SYMBOL.
+    # --------------------------------------------------------
 
     if asset_code in CNY_OTC_ASSETS:
 
-        cny_symbol = await try_cny_symbol_only(
+        cny_df = await try_cny_symbol_only(
             client,
             asset_code,
             timeframe
         )
 
-        if cny_symbol is not None:
-            return cny_symbol
+        if cny_df is not None:
+            return cny_df
 
-        cny_subscription = await try_cny_subscription(
-            client,
-            asset_code,
-            timeframe
-        )
-
-        if cny_subscription is not None:
-            return cny_subscription
-
-    # ========================================================
+    # --------------------------------------------------------
     # NORMAL REALTIME
-    # ========================================================
+    # --------------------------------------------------------
 
     realtime_df = await try_realtime_candles(
         client,
@@ -1440,11 +1457,12 @@ async def get_candles(
             realtime_df,
             timeframe
         ):
+
             return realtime_df
 
-    # ========================================================
+    # --------------------------------------------------------
     # NORMAL GET_CANDLES
-    # ========================================================
+    # --------------------------------------------------------
 
     raw_method = getattr(
         client,
@@ -1466,11 +1484,12 @@ async def get_candles(
                 df,
                 timeframe
             ):
+
                 return df
 
-    # ========================================================
+    # --------------------------------------------------------
     # DATAFRAME METHOD
-    # ========================================================
+    # --------------------------------------------------------
 
     df_method = getattr(
         client,
@@ -1492,11 +1511,12 @@ async def get_candles(
                 df,
                 timeframe
             ):
+
                 return df
 
-    # ========================================================
+    # --------------------------------------------------------
     # SECOND RETRY
-    # ========================================================
+    # --------------------------------------------------------
 
     await asyncio.sleep(1)
 
@@ -1514,27 +1534,37 @@ async def get_candles(
                 df,
                 timeframe
             ):
+
                 return df
 
-    # ========================================================
-    # CNY SUBSCRIPTION SECOND CHANCE
-    # ========================================================
+    # --------------------------------------------------------
+    # CNY FINAL SYMBOL RETRY
+    # --------------------------------------------------------
 
     if asset_code in CNY_OTC_ASSETS:
 
-        cny_subscription = await try_cny_subscription(
+        await asyncio.sleep(1)
+
+        cny_df = await try_cny_symbol_only(
             client,
             asset_code,
             timeframe
         )
 
-        if cny_subscription is not None:
-            return cny_subscription
+        if cny_df is not None:
+            return cny_df
 
     return None
 
 
-def calculate_rsi(series, period=14):
+# ============================================================
+# RSI
+# ============================================================
+
+def calculate_rsi(
+    series,
+    period=14
+):
 
     series = pd.to_numeric(
         series,
@@ -1658,6 +1688,10 @@ def sr_filter(
 
     return True, support, resistance
 
+
+# ============================================================
+# GEMINI
+# ============================================================
 
 async def ask_gemini(
     asset,
@@ -1792,11 +1826,14 @@ WAIT
             data = response.json()
 
             try:
+
                 return (
                     data["candidates"][0]
                     ["content"]["parts"][0]["text"]
                 )
+
             except Exception:
+
                 return ""
 
         answer = (
@@ -1805,13 +1842,22 @@ WAIT
             )
         ).strip().upper()
 
-        if re.search(r"\bBUY\b", answer):
+        if re.search(
+            r"\bBUY\b",
+            answer
+        ):
             return "BUY"
 
-        if re.search(r"\bSELL\b", answer):
+        if re.search(
+            r"\bSELL\b",
+            answer
+        ):
             return "SELL"
 
-        if re.search(r"\bWAIT\b", answer):
+        if re.search(
+            r"\bWAIT\b",
+            answer
+        ):
             return "WAIT"
 
         return "ERROR"
@@ -1826,6 +1872,10 @@ WAIT
 
         return "ERROR"
 
+
+# ============================================================
+# SIGNAL PANEL
+# ============================================================
 
 def build_signal_panel(
     asset,
@@ -1891,6 +1941,7 @@ def build_signal_panel(
         )
 
         if not sr_pass:
+
             reason = (
                 "\n❌ S/R filter ayaa BLOCKED.\n"
             )
@@ -1936,6 +1987,10 @@ def build_signal_panel(
         "━━━━━━━━━━━━━━━━━━━━"
     )
 
+
+# ============================================================
+# SIGNAL
+# ============================================================
 
 async def get_signal(
     asset_code,
@@ -2035,17 +2090,27 @@ async def get_signal(
         )
 
         if price > ma10 and ma10 > ma50:
+
             trend = "CALL 🟢"
+
         elif price < ma10 and ma10 < ma50:
+
             trend = "PUT 🔴"
+
         else:
+
             trend = "NEUTRAL ⚪"
 
         if 50 <= rsi <= 70:
+
             rsi_signal = "CALL 🟢"
+
         elif 30 <= rsi < 50:
+
             rsi_signal = "PUT 🔴"
+
         else:
+
             rsi_signal = "NEUTRAL ⚪"
 
         current_close = float(
@@ -2065,17 +2130,27 @@ async def get_signal(
         )
 
         if current_close > current_open:
+
             current_signal = "CALL 🟢"
+
         elif current_close < current_open:
+
             current_signal = "PUT 🔴"
+
         else:
+
             current_signal = "NEUTRAL ⚪"
 
         if previous_close > previous_open:
+
             previous_signal = "CALL 🟢"
+
         elif previous_close < previous_open:
+
             previous_signal = "PUT 🔴"
+
         else:
+
             previous_signal = "NEUTRAL ⚪"
 
         higher_tf = HIGHER_TIMEFRAME[
@@ -2122,10 +2197,15 @@ async def get_signal(
                 )
 
                 if h_close > h_open:
+
                     higher_signal = "CALL 🟢"
+
                 elif h_close < h_open:
+
                     higher_signal = "PUT 🔴"
+
                 else:
+
                     higher_signal = "NEUTRAL ⚪"
 
         call_count = 0
@@ -2141,6 +2221,7 @@ async def get_signal(
 
             if value.startswith("CALL"):
                 call_count += 1
+
             elif value.startswith("PUT"):
                 put_count += 1
 
@@ -2182,8 +2263,11 @@ async def get_signal(
         final_signal = "WAIT"
 
         if call_count >= 4 and sr_pass:
+
             final_signal = "BUY"
+
         elif put_count >= 4 and sr_pass:
+
             final_signal = "SELL"
 
         return build_signal_panel(
@@ -2238,9 +2322,14 @@ async def get_signal(
 
             try:
                 await client.disconnect()
+
             except Exception:
                 pass
 
+
+# ============================================================
+# TELEGRAM MENU
+# ============================================================
 
 async def start(
     update: Update,
@@ -2280,9 +2369,14 @@ async def show_pair_categories(update):
     )
 
 
-async def show_pairs(update, category):
+async def show_pairs(
+    update,
+    category
+):
 
-    assets = CATEGORIES[category]
+    assets = CATEGORIES[
+        category
+    ]
 
     rows = button_rows(
         list(assets.keys()),
@@ -2430,6 +2524,7 @@ async def message_handler(
         await show_pair_categories(
             update
         )
+
         return
 
     if text == "⏱ TIMEFRAME":
@@ -2437,6 +2532,7 @@ async def message_handler(
         await show_timeframes(
             update
         )
+
         return
 
     if text == "⌛ EXPIRY":
@@ -2444,6 +2540,7 @@ async def message_handler(
         await show_expiries(
             update
         )
+
         return
 
     if text == "ℹ️ STATUS":
@@ -2532,6 +2629,10 @@ async def message_handler(
     )
 
 
+# ============================================================
+# RENDER HEALTH SERVER
+# ============================================================
+
 class HealthHandler(
     BaseHTTPRequestHandler
 ):
@@ -2556,6 +2657,7 @@ class HealthHandler(
         format,
         *args
     ):
+
         return
 
 
@@ -2584,6 +2686,10 @@ def run_health_server():
 
     server.serve_forever()
 
+
+# ============================================================
+# TELEGRAM
+# ============================================================
 
 async def telegram_post_init(
     application
