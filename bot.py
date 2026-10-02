@@ -1480,8 +1480,9 @@ def build_signal_panel(
         if not sr_pass:
             reason = (
                 "\n❌ S/R filter ayaa BLOCKED.\n"
-    )
-      return (
+            )
+
+    return (
         "━━━━━━━━━━━━━━━━━━━━\n"
         "🤖 NAASIRFX AI SIGNAL\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -2314,4 +2315,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()      
+    main()
