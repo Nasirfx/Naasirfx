@@ -341,110 +341,216 @@ STOCK_ASSETS = load_stock_assets()
 # =========================================================
 
 async def _get_candles_with_fallback(client, asset_code, timeframe):
-    """Get candles using the requested asset first, then safe API fallbacks.
-
-    The visible pair name is never changed.  Only the internal API symbol is
-    varied when Pocket Option/API catalog uses a different symbol spelling.
+    """Fetch enough candles for the selected asset without changing its
+    visible Telegram name.  The requested symbol is tried first, then the
+    live Pocket Option asset catalog is used to find the exact server symbol.
     """
+    requested = str(asset_code).strip()
     candidates = []
 
-    def add_candidate(value):
-        if not value:
+    def add(value):
+        if value is None:
             return
         value = str(value).strip()
         if value and value not in candidates:
             candidates.append(value)
 
-    requested = str(asset_code).strip()
-    add_candidate(requested)
+    def norm(value):
+        return ''.join(ch for ch in str(value).upper() if ch.isalnum())
 
-    # Common Pocket Option spellings for OTC symbols.
-    base = requested[:-4] if requested.lower().endswith("_otc") else requested
-    add_candidate(base + "_otc")
-    add_candidate(base + "_OTC")
-    add_candidate(base.upper() + "_otc")
-    add_candidate(base.upper() + "_OTC")
+    base = requested[:-4] if requested.lower().endswith('_otc') else requested
+    base = base.replace('/', '').replace(' ', '').replace('-', '')
+    target = norm(base)
 
-    # Ask the live client/catalog, when supported by the installed package.
-    # This is especially useful for the less-common OTC currencies.
-    get_assets = getattr(client, "get_assets", None)
+    # Always try the exact code first.
+    add(requested)
+    add(base + '_otc')
+    add(base.upper() + '_otc')
+    add(base + '_OTC')
+
+    # The user-facing AUH/USD name stays unchanged.  Some PO catalogs use
+    # UAHUSD for the same currency pair; use it only as an internal fallback.
+    if target == 'AUHUSD':
+        add('UAHUSD_otc')
+        add('UAHUSD_OTC')
+
+    # -----------------------------------------------------
+    # LIVE ASSET CATALOG
+    # -----------------------------------------------------
+    get_assets = getattr(client, 'get_assets', None)
     if callable(get_assets):
         try:
-            live_assets = await get_assets()
-            if isinstance(live_assets, dict):
-                target = base.upper().replace("_OTC", "").replace("/", "")
-                for key, value in live_assets.items():
-                    symbols = [str(key)]
-                    if isinstance(value, dict):
-                        for field in ("symbol", "asset", "name", "ticker", "id"):
-                            if value.get(field) is not None:
-                                symbols.append(str(value[field]))
-                    elif value is not None:
-                        symbols.append(str(value))
-                    for symbol in symbols:
-                        normalized = symbol.upper().replace("/", "").replace("_OTC", "").replace("-", "")
-                        if normalized == target and "OTC" in symbol.upper():
-                            add_candidate(symbol)
-        except Exception as catalog_error:
-            print(f"🟡 ASSET CATALOG WARNING [{requested}]: {catalog_error}", flush=True)
+            live = await get_assets()
+            items = live.items() if isinstance(live, dict) else []
+
+            for key, value in items:
+                records = [key]
+                if isinstance(value, dict):
+                    for field in (
+                        'symbol', 'asset', 'name', 'ticker', 'id',
+                        'active', 'active_id', 'code'
+                    ):
+                        if value.get(field) is not None:
+                            records.append(value.get(field))
+                elif value is not None:
+                    records.append(value)
+
+                for record in records:
+                    text_value = str(record).strip()
+                    clean = norm(text_value)
+                    # Accept the exact pair and common OTC suffix variants.
+                    if clean in {target, target + 'OTC'}:
+                        add(text_value)
+                        if not text_value.lower().endswith('_otc') and 'OTC' in text_value.upper():
+                            add(text_value)
+
+            print(
+                f"🔵 ASSET LOOKUP: {requested} -> candidates={candidates}",
+                flush=True,
+            )
+        except Exception as e:
+            print(
+                f"🟡 ASSET CATALOG WARNING [{requested}]: "
+                f"{type(e).__name__}: {e}",
+                flush=True,
+            )
 
     last_error = None
 
+    # -----------------------------------------------------
+    # CANDLE FETCHERS
+    # -----------------------------------------------------
     for candidate in candidates:
-        # Method 1: package DataFrame helper.
-        try:
-            df = await client.get_candles_dataframe(
-                asset=candidate,
-                timeframe=timeframe,
-            )
-            if df is not None and len(df) > 0:
-                print(f"🟢 CANDLES OK: {requested} -> {candidate} ({len(df)})", flush=True)
-                return df, candidate
-        except Exception as e:
-            last_error = e
-            print(f"🟡 DATAFRAME FAIL: {requested} -> {candidate}: {type(e).__name__}: {e}", flush=True)
 
-        # Method 2: raw candles fallback.  Different releases expose this
-        # with either (asset, timeframe) or (asset, timeframe, count).
-        get_candles = getattr(client, "get_candles", None)
+        # 1) Raw get_candles is the most direct API method.
+        get_candles = getattr(client, 'get_candles', None)
         if callable(get_candles):
-            for args in ((candidate, timeframe, 100), (candidate, timeframe)):
+            for args in (
+                (candidate, timeframe, 120),
+                (candidate, timeframe, 100),
+                (candidate, timeframe),
+            ):
                 try:
                     raw = await get_candles(*args)
                     if raw is None:
                         continue
+
                     if isinstance(raw, pd.DataFrame):
                         df = raw.copy()
+                    elif isinstance(raw, dict):
+                        # Some releases return {timestamp: candle}.
+                        values = list(raw.values())
+                        df = pd.DataFrame(values)
                     else:
                         rows = []
                         for candle in list(raw):
                             if isinstance(candle, dict):
-                                rows.append(candle)
+                                rows.append(dict(candle))
                             else:
                                 row = {}
-                                for field in ("timestamp", "time", "open", "high", "low", "close", "volume"):
+                                for field in (
+                                    'timestamp', 'time', 'open', 'high',
+                                    'low', 'close', 'volume'
+                                ):
                                     if hasattr(candle, field):
                                         row[field] = getattr(candle, field)
                                 if row:
                                     rows.append(row)
                         df = pd.DataFrame(rows)
+
                     if df is not None and len(df) > 0:
-                        # Normalize common API timestamp/column variations.
-                        rename = {}
-                        if "time" in df.columns and "timestamp" not in df.columns:
-                            rename["time"] = "timestamp"
-                        if rename:
-                            df = df.rename(columns=rename)
-                        required = {"open", "close"}
-                        if required.issubset(df.columns):
-                            print(f"🟢 RAW CANDLES OK: {requested} -> {candidate} ({len(df)})", flush=True)
+                        if 'time' in df.columns and 'timestamp' not in df.columns:
+                            df = df.rename(columns={'time': 'timestamp'})
+
+                        if {'open', 'close'}.issubset(df.columns):
+                            print(
+                                f"🟢 CANDLES OK: {requested} -> "
+                                f"{candidate} ({len(df)})",
+                                flush=True,
+                            )
+                            return df, candidate
+
+                except TypeError as e:
+                    last_error = e
+                except Exception as e:
+                    last_error = e
+                    print(
+                        f"🟡 GET_CANDLES FAIL: {requested} -> {candidate}: "
+                        f"{type(e).__name__}: {e}",
+                        flush=True,
+                    )
+
+        # 2) DataFrame helper.
+        get_df = getattr(client, 'get_candles_dataframe', None)
+        if callable(get_df):
+            for call in (
+                lambda: get_df(candidate, timeframe),
+                lambda: get_df(asset=candidate, timeframe=timeframe),
+            ):
+                try:
+                    df = await call()
+                    if df is not None and len(df) > 0:
+                        df = df.copy()
+                        if 'time' in df.columns and 'timestamp' not in df.columns:
+                            df = df.rename(columns={'time': 'timestamp'})
+                        if {'open', 'close'}.issubset(df.columns):
+                            print(
+                                f"🟢 DATAFRAME OK: {requested} -> "
+                                f"{candidate} ({len(df)})",
+                                flush=True,
+                            )
                             return df, candidate
                 except TypeError as e:
                     last_error = e
-                    continue
                 except Exception as e:
                     last_error = e
-                    print(f"🟡 RAW CANDLES FAIL: {requested} -> {candidate}: {type(e).__name__}: {e}", flush=True)
+                    print(
+                        f"🟡 DATAFRAME FAIL: {requested} -> {candidate}: "
+                        f"{type(e).__name__}: {e}",
+                        flush=True,
+                    )
+
+        # 3) A few package versions expose historical candles separately.
+        historical = getattr(client, 'get_historical_candles', None)
+        if callable(historical):
+            calls = (
+                lambda: historical(candidate, timeframe, count_request=2),
+                lambda: historical(candidate, timeframe, count_request=1),
+            )
+            for call in calls:
+                try:
+                    raw = await call()
+                    if raw is None:
+                        continue
+                    if isinstance(raw, pd.DataFrame):
+                        df = raw.copy()
+                    else:
+                        df = pd.DataFrame(raw)
+                    if df is not None and len(df) > 0 and {'open', 'close'}.issubset(df.columns):
+                        print(
+                            f"🟢 HISTORICAL OK: {requested} -> "
+                            f"{candidate} ({len(df)})",
+                            flush=True,
+                        )
+                        return df, candidate
+                except TypeError as e:
+                    last_error = e
+                except Exception as e:
+                    last_error = e
+                    print(
+                        f"🟡 HISTORICAL FAIL: {requested} -> {candidate}: "
+                        f"{type(e).__name__}: {e}",
+                        flush=True,
+                    )
+
+    if last_error:
+        print(
+            f"🔴 ALL CANDLE METHODS FAILED: {requested}: "
+            f"{type(last_error).__name__}: {last_error}",
+            flush=True,
+        )
+    else:
+        print(f"🔴 NO CANDLE DATA: {requested}", flush=True)
 
     return None, last_error
 
