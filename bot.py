@@ -817,145 +817,195 @@ async def try_realtime_candles(client, variants, timeframe):
 
 # ============================================================
 # CNY ONLY FIX
-# Numeric Pocket Option Asset ID fallback
+# Direct candle request.
+# Numeric asset IDs are NOT passed to get_candles().
 # Wax kale lama beddelin.
 # ============================================================
 
-async def try_cny_asset_id_candles(
+async def try_cny_direct_candles(
     client,
     asset_code,
     timeframe
 ):
 
-    asset_id = CNY_OTC_ASSETS.get(
-        asset_code
-    )
-
-    if asset_id is None:
+    if asset_code not in CNY_OTC_ASSETS:
         return None
 
-    method_names = [
-        "get_candles",
-        "get_candles_dataframe"
-    ]
-
-    id_variants = [
-        asset_id,
-        str(asset_id)
-    ]
-
-    now_utc = datetime.now(
-        timezone.utc
-    )
-
     print(
-        f"🟡 CNY ID FALLBACK: "
-        f"{asset_code} -> ID {asset_id}",
+        f"🟡 CNY DIRECT FALLBACK: "
+        f"{asset_code} TF={timeframe}s",
         flush=True
     )
 
-    for method_name in method_names:
+    # Try the internal candle-request method only if this
+    # version of the library exposes it.
+    method = getattr(
+        client,
+        "_request_candles",
+        None
+    )
 
-        method = getattr(
-            client,
-            method_name,
-            None
+    if callable(method):
+
+        now_utc = datetime.now(
+            timezone.utc
         )
 
-        if not callable(method):
-            continue
-
-        for variant in id_variants:
-
-            calls = [
+        call_variants = [
+            (
                 (
-                    (
-                        variant,
-                        timeframe,
-                        CANDLE_COUNT,
-                        now_utc
-                    ),
-                    {}
+                    asset_code,
+                    timeframe,
+                    CANDLE_COUNT,
+                    now_utc
                 ),
+                {}
+            ),
+            (
                 (
-                    (
+                    asset_code,
+                    timeframe,
+                    CANDLE_COUNT
+                ),
+                {}
+            ),
+            (
+                (),
+                {
+                    "asset": asset_code,
+                    "timeframe": timeframe,
+                    "count": CANDLE_COUNT,
+                    "end_time": now_utc
+                }
+            ),
+            (
+                (),
+                {
+                    "asset": asset_code,
+                    "timeframe": timeframe,
+                    "count": CANDLE_COUNT
+                }
+            ),
+            (
+                (),
+                {
+                    "asset": asset_code,
+                    "timeframe": timeframe
+                }
+            )
+        ]
+
+        for args, kwargs in call_variants:
+
+            try:
+
+                result = method(
+                    *args,
+                    **kwargs
+                )
+
+                if inspect.isawaitable(result):
+                    raw = await asyncio.wait_for(
+                        result,
+                        timeout=CANDLE_TIMEOUT
+                    )
+                else:
+                    raw = result
+
+                df = normalize_candle_dataframe(
+                    raw
+                )
+
+                if (
+                    df is not None
+                    and len(df) >= 2
+                    and candle_is_current_or_recent(
+                        df,
+                        timeframe
+                    )
+                ):
+
+                    print(
+                        f"🟢 CNY DIRECT CANDLES OK: "
+                        f"{asset_code} "
+                        f"TF={timeframe}s "
+                        f"rows={len(df)}",
+                        flush=True
+                    )
+
+                    return df
+
+            except TypeError:
+                continue
+
+            except Exception as e:
+
+                print(
+                    f"🟡 CNY DIRECT TRY FAIL "
+                    f"{asset_code}: {e}",
+                    flush=True
+                )
+
+    # Final CNY attempt using the normal string symbol.
+    # This does NOT use numeric IDs.
+    variants = [
+        asset_code,
+        asset_code.upper(),
+        asset_code.replace("_otc", "_OTC"),
+        asset_code.replace("_otc", " OTC")
+    ]
+
+    raw_method = getattr(
+        client,
+        "get_candles",
+        None
+    )
+
+    if callable(raw_method):
+
+        for variant in variants:
+
+            try:
+
+                raw = await asyncio.wait_for(
+                    raw_method(
                         variant,
                         timeframe,
                         CANDLE_COUNT
                     ),
-                    {}
-                ),
-                (
-                    (
-                        variant,
-                        timeframe
-                    ),
-                    {}
-                ),
-                (
-                    (),
-                    {
-                        "asset": variant,
-                        "timeframe": timeframe,
-                        "count": CANDLE_COUNT,
-                        "end_time": now_utc
-                    }
-                ),
-                (
-                    (),
-                    {
-                        "asset": variant,
-                        "timeframe": timeframe
-                    }
+                    timeout=CANDLE_TIMEOUT
                 )
-            ]
 
-            for args, kwargs in calls:
+                df = normalize_candle_dataframe(
+                    raw
+                )
 
-                try:
-
-                    raw = await asyncio.wait_for(
-                        method(*args, **kwargs),
-                        timeout=CANDLE_TIMEOUT
+                if (
+                    df is not None
+                    and len(df) >= 2
+                    and candle_is_current_or_recent(
+                        df,
+                        timeframe
                     )
-
-                    df = normalize_candle_dataframe(
-                        raw
-                    )
-
-                    if (
-                        df is not None
-                        and len(df) >= 2
-                        and candle_is_current_or_recent(
-                            df,
-                            timeframe
-                        )
-                    ):
-
-                        print(
-                            f"🟢 CNY ID CANDLES OK: "
-                            f"{asset_code} "
-                            f"ID={variant} "
-                            f"TF={timeframe}s "
-                            f"rows={len(df)}",
-                            flush=True
-                        )
-
-                        return df
-
-                except TypeError:
-                    continue
-
-                except Exception as e:
+                ):
 
                     print(
-                        f"🟡 CNY ID CANDLE FAIL: "
-                        f"{asset_code} "
-                        f"ID={variant} "
-                        f"METHOD={method_name}: "
-                        f"{e}",
+                        f"🟢 CNY STRING CANDLES OK: "
+                        f"{variant} "
+                        f"TF={timeframe}s "
+                        f"rows={len(df)}",
                         flush=True
                     )
+
+                    return df
+
+            except Exception as e:
+
+                print(
+                    f"🟡 CNY STRING FAIL "
+                    f"{variant}: {e}",
+                    flush=True
+                )
 
     return None
 
@@ -1089,12 +1139,12 @@ async def get_candles(
                 return df
 
     # ---------------------------------------------------------
-    # 5. CNY ONLY — NUMERIC ASSET ID FALLBACK
+    # 5. CNY ONLY — DIRECT FALLBACK
     # ---------------------------------------------------------
 
     if asset_code in CNY_OTC_ASSETS:
 
-        cny_df = await try_cny_asset_id_candles(
+        cny_df = await try_cny_direct_candles(
             client,
             asset_code,
             timeframe
