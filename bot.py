@@ -246,6 +246,8 @@ CATEGORIES = {
     "📈 Stocks OTC": STOCK_OTC_NAMES
 }
 
+# IDs are kept only as reference/discovery metadata.
+# THEY ARE NEVER SENT TO get_candles().
 CNY_OTC_ASSETS = {
     "AEDCNY_otc": 538,
     "BHDCNY_otc": 536,
@@ -338,6 +340,10 @@ def get_asset_variants(asset_code):
 
 
 async def discover_asset_variants_by_id(client, asset_code):
+    # CNY IDs are NOT passed into candle methods.
+    # This discovery is only for finding a symbolic name if
+    # the connected client exposes the asset list.
+
     asset_id = CNY_OTC_ASSETS.get(asset_code)
 
     if asset_id is None:
@@ -349,10 +355,15 @@ async def discover_asset_variants_by_id(client, asset_code):
         return []
 
     try:
-        assets = await asyncio.wait_for(
-            method(),
-            timeout=10
-        )
+        result = method()
+
+        if inspect.isawaitable(result):
+            assets = await asyncio.wait_for(
+                result,
+                timeout=10
+            )
+        else:
+            assets = result
 
     except Exception as e:
         print(
@@ -402,10 +413,8 @@ async def discover_asset_variants_by_id(client, asset_code):
             if same_id(key):
 
                 if isinstance(value, dict):
-
                     for k in name_keys:
                         add(value.get(k))
-
                 else:
                     add(value)
 
@@ -420,7 +429,6 @@ async def discover_asset_variants_by_id(client, asset_code):
                 ]
 
                 if any(same_id(v) for v in ids):
-
                     for k in name_keys:
                         add(value.get(k))
 
@@ -442,7 +450,6 @@ async def discover_asset_variants_by_id(client, asset_code):
             ]
 
             if any(same_id(v) for v in ids):
-
                 for k in name_keys:
                     add(item.get(k))
 
@@ -451,7 +458,6 @@ async def discover_asset_variants_by_id(client, asset_code):
             ids = []
 
             for k in id_keys:
-
                 try:
                     ids.append(getattr(item, k, None))
                 except Exception:
@@ -460,7 +466,6 @@ async def discover_asset_variants_by_id(client, asset_code):
             if any(same_id(v) for v in ids):
 
                 for k in name_keys:
-
                     try:
                         add(getattr(item, k, None))
                     except Exception:
@@ -500,18 +505,21 @@ def _timestamp_to_seconds(value):
             return value.timestamp()
 
         if isinstance(value, datetime):
+
             if value.tzinfo is None:
-                value = value.replace(tzinfo=timezone.utc)
+                value = value.replace(
+                    tzinfo=timezone.utc
+                )
 
             return value.timestamp()
 
         number = float(value)
 
         if number > 10_000_000_000:
-            number = number / 1000.0
+            number /= 1000.0
 
         if number > 10_000_000_000_000:
-            number = number / 1_000_000.0
+            number /= 1_000_000.0
 
         return number
 
@@ -536,11 +544,21 @@ def normalize_candle_dataframe(raw):
             ):
                 df = pd.DataFrame(raw)
 
-            elif isinstance(raw.get("candles"), (list, tuple)):
-                df = pd.DataFrame(raw["candles"])
+            elif isinstance(
+                raw.get("candles"),
+                (list, tuple)
+            ):
+                df = pd.DataFrame(
+                    raw["candles"]
+                )
 
-            elif isinstance(raw.get("data"), (list, tuple)):
-                df = pd.DataFrame(raw["data"])
+            elif isinstance(
+                raw.get("data"),
+                (list, tuple)
+            ):
+                df = pd.DataFrame(
+                    raw["data"]
+                )
 
             else:
                 df = pd.DataFrame(raw)
@@ -565,14 +583,14 @@ def normalize_candle_dataframe(raw):
             "t": "timestamp"
         }
 
-        df = df.rename(columns=rename_map)
+        df = df.rename(
+            columns=rename_map
+        )
 
-        required = [
-            "open",
-            "close"
-        ]
-
-        if not all(c in df.columns for c in required):
+        if not all(
+            c in df.columns
+            for c in ("open", "close")
+        ):
             return None
 
         for column in (
@@ -600,22 +618,22 @@ def normalize_candle_dataframe(raw):
 
         if time_column:
 
-            parsed = []
-
-            for value in df[time_column]:
-                parsed.append(
-                    _timestamp_to_seconds(value)
-                )
-
-            df["_ts"] = parsed
+            df["_ts"] = [
+                _timestamp_to_seconds(v)
+                for v in df[time_column]
+            ]
 
             if df["_ts"].notna().any():
-                df = df.sort_values(
-                    "_ts"
-                ).reset_index(drop=True)
+
+                df = (
+                    df.sort_values("_ts")
+                    .reset_index(drop=True)
+                )
 
         else:
-            df = df.reset_index(drop=True)
+            df = df.reset_index(
+                drop=True
+            )
 
         return df
 
@@ -630,7 +648,11 @@ def normalize_candle_dataframe(raw):
         return None
 
 
-def candle_is_current_or_recent(df, timeframe, tolerance_bars=1):
+def candle_is_current_or_recent(
+    df,
+    timeframe,
+    tolerance_bars=1
+):
 
     if df is None or df.empty:
         return False
@@ -643,10 +665,11 @@ def candle_is_current_or_recent(df, timeframe, tolerance_bars=1):
     if timestamps.empty:
         return True
 
-    latest_ts = float(timestamps.iloc[-1])
-    now_ts = time.time()
+    latest_ts = float(
+        timestamps.iloc[-1]
+    )
 
-    age = now_ts - latest_ts
+    age = time.time() - latest_ts
 
     max_age = (
         timeframe * (tolerance_bars + 1)
@@ -656,7 +679,8 @@ def candle_is_current_or_recent(df, timeframe, tolerance_bars=1):
     if age > max_age:
 
         print(
-            f"🔴 STALE CANDLES: age={age:.1f}s "
+            f"🔴 STALE CANDLES: "
+            f"age={age:.1f}s "
             f"timeframe={timeframe}s",
             flush=True
         )
@@ -666,19 +690,34 @@ def candle_is_current_or_recent(df, timeframe, tolerance_bars=1):
     return True
 
 
-async def call_method_flexible(method, variants, timeframe):
+async def call_method_flexible(
+    method,
+    variants,
+    timeframe
+):
 
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(
+        timezone.utc
+    )
 
     for variant in variants:
 
         calls = [
             (
-                (variant, timeframe, CANDLE_COUNT, now_utc),
+                (
+                    variant,
+                    timeframe,
+                    CANDLE_COUNT,
+                    now_utc
+                ),
                 {}
             ),
             (
-                (variant, timeframe, CANDLE_COUNT),
+                (
+                    variant,
+                    timeframe,
+                    CANDLE_COUNT
+                ),
                 {}
             ),
             (
@@ -703,18 +742,35 @@ async def call_method_flexible(method, variants, timeframe):
 
             try:
 
-                raw = await asyncio.wait_for(
-                    method(*args, **kwargs),
-                    timeout=CANDLE_TIMEOUT
+                result = method(
+                    *args,
+                    **kwargs
                 )
 
-                df = normalize_candle_dataframe(raw)
+                if inspect.isawaitable(result):
 
-                if df is not None and len(df) >= 2:
+                    raw = await asyncio.wait_for(
+                        result,
+                        timeout=CANDLE_TIMEOUT
+                    )
+
+                else:
+                    raw = result
+
+                df = normalize_candle_dataframe(
+                    raw
+                )
+
+                if (
+                    df is not None
+                    and len(df) >= 2
+                ):
 
                     print(
-                        f"🟢 CANDLES OK: {variant} "
-                        f"TF={timeframe}s rows={len(df)}",
+                        f"🟢 CANDLES OK: "
+                        f"{variant} "
+                        f"TF={timeframe}s "
+                        f"rows={len(df)}",
                         flush=True
                     )
 
@@ -726,14 +782,19 @@ async def call_method_flexible(method, variants, timeframe):
             except Exception as e:
 
                 print(
-                    f"🟡 CANDLE METHOD FAIL {variant}: {e}",
+                    f"🟡 CANDLE METHOD FAIL "
+                    f"{variant}: {e}",
                     flush=True
                 )
 
     return None
 
 
-async def try_realtime_candles(client, variants, timeframe):
+async def try_realtime_candles(
+    client,
+    variants,
+    timeframe
+):
 
     method_names = [
         "get_realtime_candles",
@@ -754,7 +815,8 @@ async def try_realtime_candles(client, variants, timeframe):
             continue
 
         print(
-            f"🟢 REALTIME METHOD FOUND: {method_name}",
+            f"🟢 REALTIME METHOD FOUND: "
+            f"{method_name}",
             flush=True
         )
 
@@ -784,14 +846,29 @@ async def try_realtime_candles(client, variants, timeframe):
 
                 try:
 
-                    raw = await asyncio.wait_for(
-                        method(*args, **kwargs),
-                        timeout=15
+                    result = method(
+                        *args,
+                        **kwargs
                     )
 
-                    df = normalize_candle_dataframe(raw)
+                    if inspect.isawaitable(result):
 
-                    if df is not None and len(df) >= 2:
+                        raw = await asyncio.wait_for(
+                            result,
+                            timeout=15
+                        )
+
+                    else:
+                        raw = result
+
+                    df = normalize_candle_dataframe(
+                        raw
+                    )
+
+                    if (
+                        df is not None
+                        and len(df) >= 2
+                    ):
 
                         print(
                             f"🟢 REALTIME CANDLES OK: "
@@ -816,13 +893,10 @@ async def try_realtime_candles(client, variants, timeframe):
 
 
 # ============================================================
-# CNY ONLY FIX
-# Direct candle request.
-# Numeric asset IDs are NOT passed to get_candles().
-# Wax kale lama beddelin.
+# CNY-ONLY CANDLE SUBSCRIPTION FALLBACK
 # ============================================================
 
-async def try_cny_direct_candles(
+async def try_cny_subscription(
     client,
     asset_code,
     timeframe
@@ -832,180 +906,476 @@ async def try_cny_direct_candles(
         return None
 
     print(
-        f"🟡 CNY DIRECT FALLBACK: "
+        f"🟡 CNY SUBSCRIPTION FALLBACK: "
         f"{asset_code} TF={timeframe}s",
         flush=True
     )
 
-    # Try the internal candle-request method only if this
-    # version of the library exposes it.
-    method = getattr(
-        client,
-        "_request_candles",
-        None
-    )
+    subscribe_names = [
+        "subscribe_candles",
+        "subscribe_candle",
+        "start_candle_subscription",
+        "subscribe_symbol"
+    ]
 
-    if callable(method):
+    unsubscribe_names = [
+        "unsubscribe_candles",
+        "unsubscribe_candle",
+        "stop_candle_subscription",
+        "unsubscribe_symbol"
+    ]
 
-        now_utc = datetime.now(
-            timezone.utc
-        )
-
-        call_variants = [
-            (
-                (
-                    asset_code,
-                    timeframe,
-                    CANDLE_COUNT,
-                    now_utc
-                ),
-                {}
-            ),
-            (
-                (
-                    asset_code,
-                    timeframe,
-                    CANDLE_COUNT
-                ),
-                {}
-            ),
-            (
-                (),
-                {
-                    "asset": asset_code,
-                    "timeframe": timeframe,
-                    "count": CANDLE_COUNT,
-                    "end_time": now_utc
-                }
-            ),
-            (
-                (),
-                {
-                    "asset": asset_code,
-                    "timeframe": timeframe,
-                    "count": CANDLE_COUNT
-                }
-            ),
-            (
-                (),
-                {
-                    "asset": asset_code,
-                    "timeframe": timeframe
-                }
-            )
-        ]
-
-        for args, kwargs in call_variants:
-
-            try:
-
-                result = method(
-                    *args,
-                    **kwargs
-                )
-
-                if inspect.isawaitable(result):
-                    raw = await asyncio.wait_for(
-                        result,
-                        timeout=CANDLE_TIMEOUT
-                    )
-                else:
-                    raw = result
-
-                df = normalize_candle_dataframe(
-                    raw
-                )
-
-                if (
-                    df is not None
-                    and len(df) >= 2
-                    and candle_is_current_or_recent(
-                        df,
-                        timeframe
-                    )
-                ):
-
-                    print(
-                        f"🟢 CNY DIRECT CANDLES OK: "
-                        f"{asset_code} "
-                        f"TF={timeframe}s "
-                        f"rows={len(df)}",
-                        flush=True
-                    )
-
-                    return df
-
-            except TypeError:
-                continue
-
-            except Exception as e:
-
-                print(
-                    f"🟡 CNY DIRECT TRY FAIL "
-                    f"{asset_code}: {e}",
-                    flush=True
-                )
-
-    # Final CNY attempt using the normal string symbol.
-    # This does NOT use numeric IDs.
     variants = [
         asset_code,
         asset_code.upper(),
-        asset_code.replace("_otc", "_OTC"),
-        asset_code.replace("_otc", " OTC")
+        asset_code.replace(
+            "_otc",
+            "_OTC"
+        )
     ]
 
-    raw_method = getattr(
-        client,
-        "get_candles",
-        None
-    )
+    subscribed = False
+    subscription_result = None
 
-    if callable(raw_method):
+    for method_name in subscribe_names:
 
-        for variant in variants:
+        method = getattr(
+            client,
+            method_name,
+            None
+        )
 
-            try:
+        if not callable(method):
+            continue
 
-                raw = await asyncio.wait_for(
-                    raw_method(
-                        variant,
-                        timeframe,
-                        CANDLE_COUNT
-                    ),
-                    timeout=CANDLE_TIMEOUT
+        print(
+            f"🟢 CNY SUBSCRIBE METHOD FOUND: "
+            f"{method_name}",
+            flush=True
+        )
+
+        for symbol in variants:
+
+            calls = [
+                (
+                    (symbol, timeframe),
+                    {}
+                ),
+                (
+                    (),
+                    {
+                        "asset": symbol,
+                        "timeframe": timeframe
+                    }
+                ),
+                (
+                    (symbol,),
+                    {
+                        "timeframe": timeframe
+                    }
+                ),
+                (
+                    (),
+                    {
+                        "symbol": symbol,
+                        "timeframe": timeframe
+                    }
+                ),
+                (
+                    (symbol,),
+                    {}
                 )
+            ]
 
-                df = normalize_candle_dataframe(
-                    raw
-                )
+            for args, kwargs in calls:
 
-                if (
-                    df is not None
-                    and len(df) >= 2
-                    and candle_is_current_or_recent(
-                        df,
-                        timeframe
+                try:
+
+                    result = method(
+                        *args,
+                        **kwargs
                     )
-                ):
+
+                    if inspect.isawaitable(result):
+
+                        subscription_result = await asyncio.wait_for(
+                            result,
+                            timeout=15
+                        )
+
+                    else:
+                        subscription_result = result
+
+                    subscribed = True
 
                     print(
-                        f"🟢 CNY STRING CANDLES OK: "
-                        f"{variant} "
-                        f"TF={timeframe}s "
-                        f"rows={len(df)}",
+                        f"🟢 CNY SUBSCRIBED: "
+                        f"{symbol} "
+                        f"TF={timeframe}s",
                         flush=True
                     )
 
-                    return df
+                    break
 
-            except Exception as e:
+                except TypeError:
+                    continue
+
+                except Exception as e:
+
+                    print(
+                        f"🟡 CNY SUBSCRIBE FAIL "
+                        f"{symbol}: {e}",
+                        flush=True
+                    )
+
+            if subscribed:
+                break
+
+        if subscribed:
+            break
+
+    if not subscribed:
+        return None
+
+    try:
+
+        # First, see whether subscription itself returned data.
+        df = normalize_candle_dataframe(
+            subscription_result
+        )
+
+        if (
+            df is not None
+            and len(df) >= 2
+        ):
+
+            print(
+                f"🟢 CNY SUBSCRIPTION DATA OK: "
+                f"{asset_code} rows={len(df)}",
+                flush=True
+            )
+
+            return df
+
+        # Then check realtime/live candle methods.
+        realtime = await try_realtime_candles(
+            client,
+            variants,
+            timeframe
+        )
+
+        if (
+            realtime is not None
+            and len(realtime) >= 2
+        ):
+
+            if candle_is_current_or_recent(
+                realtime,
+                timeframe
+            ):
 
                 print(
-                    f"🟡 CNY STRING FAIL "
-                    f"{variant}: {e}",
+                    f"🟢 CNY SUBSCRIPTION LIVE DATA OK: "
+                    f"{asset_code} rows={len(realtime)}",
                     flush=True
                 )
+
+                return realtime
+
+        # Some clients expose a candle cache after
+        # subscribing. Try the common cache names.
+        cache_names = [
+            "candle_data",
+            "candles",
+            "candle_cache",
+            "_candle_data",
+            "_candles",
+            "_candle_cache"
+        ]
+
+        for cache_name in cache_names:
+
+            cache = getattr(
+                client,
+                cache_name,
+                None
+            )
+
+            if cache is None:
+                continue
+
+            raw = None
+
+            if isinstance(cache, dict):
+
+                for key in variants:
+
+                    if key in cache:
+                        raw = cache[key]
+                        break
+
+                if raw is None:
+
+                    for key, value in cache.items():
+
+                        if str(key).upper() in [
+                            str(v).upper()
+                            for v in variants
+                        ]:
+                            raw = value
+                            break
+
+            else:
+                raw = cache
+
+            df = normalize_candle_dataframe(
+                raw
+            )
+
+            if (
+                df is not None
+                and len(df) >= 2
+            ):
+
+                print(
+                    f"🟢 CNY CACHE CANDLES OK: "
+                    f"{asset_code} "
+                    f"rows={len(df)}",
+                    flush=True
+                )
+
+                return df
+
+        # Give the subscription a little time to populate.
+        for _ in range(3):
+
+            await asyncio.sleep(2)
+
+            realtime = await try_realtime_candles(
+                client,
+                variants,
+                timeframe
+            )
+
+            if (
+                realtime is not None
+                and len(realtime) >= 2
+            ):
+
+                print(
+                    f"🟢 CNY SUBSCRIPTION RETRY OK: "
+                    f"{asset_code} "
+                    f"rows={len(realtime)}",
+                    flush=True
+                )
+
+                return realtime
+
+    finally:
+
+        # Cleanup if this library exposes unsubscribe.
+        for method_name in unsubscribe_names:
+
+            method = getattr(
+                client,
+                method_name,
+                None
+            )
+
+            if not callable(method):
+                continue
+
+            for symbol in variants:
+
+                calls = [
+                    (
+                        (symbol, timeframe),
+                        {}
+                    ),
+                    (
+                        (),
+                        {
+                            "asset": symbol,
+                            "timeframe": timeframe
+                        }
+                    ),
+                    (
+                        (symbol,),
+                        {}
+                    ),
+                    (
+                        (),
+                        {
+                            "symbol": symbol,
+                            "timeframe": timeframe
+                        }
+                    )
+                ]
+
+                done = False
+
+                for args, kwargs in calls:
+
+                    try:
+
+                        result = method(
+                            *args,
+                            **kwargs
+                        )
+
+                        if inspect.isawaitable(result):
+                            await asyncio.wait_for(
+                                result,
+                                timeout=10
+                            )
+
+                        done = True
+                        break
+
+                    except TypeError:
+                        continue
+
+                    except Exception:
+                        break
+
+                if done:
+                    break
+
+            break
+
+    return None
+
+
+async def try_cny_symbol_only(
+    client,
+    asset_code,
+    timeframe
+):
+
+    if asset_code not in CNY_OTC_ASSETS:
+        return None
+
+    print(
+        f"🟡 CNY SYMBOL FALLBACK: "
+        f"{asset_code} TF={timeframe}s",
+        flush=True
+    )
+
+    variants = [
+        asset_code,
+        asset_code.upper(),
+        asset_code.replace(
+            "_otc",
+            "_OTC"
+        ),
+        asset_code.replace(
+            "_otc",
+            " OTC"
+        )
+    ]
+
+    for method_name in (
+        "get_candles",
+        "get_candles_dataframe"
+    ):
+
+        method = getattr(
+            client,
+            method_name,
+            None
+        )
+
+        if not callable(method):
+            continue
+
+        for symbol in variants:
+
+            calls = [
+                (
+                    (
+                        symbol,
+                        timeframe,
+                        CANDLE_COUNT
+                    ),
+                    {}
+                ),
+                (
+                    (),
+                    {
+                        "asset": symbol,
+                        "timeframe": timeframe,
+                        "count": CANDLE_COUNT
+                    }
+                ),
+                (
+                    (
+                        symbol,
+                        timeframe
+                    ),
+                    {}
+                ),
+                (
+                    (),
+                    {
+                        "asset": symbol,
+                        "timeframe": timeframe
+                    }
+                )
+            ]
+
+            for args, kwargs in calls:
+
+                try:
+
+                    result = method(
+                        *args,
+                        **kwargs
+                    )
+
+                    if inspect.isawaitable(result):
+
+                        raw = await asyncio.wait_for(
+                            result,
+                            timeout=CANDLE_TIMEOUT
+                        )
+
+                    else:
+                        raw = result
+
+                    df = normalize_candle_dataframe(
+                        raw
+                    )
+
+                    if (
+                        df is not None
+                        and len(df) >= 2
+                    ):
+
+                        if candle_is_current_or_recent(
+                            df,
+                            timeframe
+                        ):
+
+                            print(
+                                f"🟢 CNY SYMBOL CANDLES OK: "
+                                f"{symbol} "
+                                f"TF={timeframe}s "
+                                f"rows={len(df)}",
+                                flush=True
+                            )
+
+                            return df
+
+                except TypeError:
+                    continue
+
+                except Exception as e:
+
+                    print(
+                        f"🟡 CNY SYMBOL FAIL "
+                        f"{symbol}: {e}",
+                        flush=True
+                    )
 
     return None
 
@@ -1030,9 +1400,33 @@ async def get_candles(
         if item not in variants:
             variants.append(item)
 
-    # ---------------------------------------------------------
-    # 1. REALTIME/LIVE CANDLE FIRST
-    # ---------------------------------------------------------
+    # ========================================================
+    # CNY FIRST: SYMBOL + SUBSCRIPTION
+    # ========================================================
+
+    if asset_code in CNY_OTC_ASSETS:
+
+        cny_symbol = await try_cny_symbol_only(
+            client,
+            asset_code,
+            timeframe
+        )
+
+        if cny_symbol is not None:
+            return cny_symbol
+
+        cny_subscription = await try_cny_subscription(
+            client,
+            asset_code,
+            timeframe
+        )
+
+        if cny_subscription is not None:
+            return cny_subscription
+
+    # ========================================================
+    # NORMAL REALTIME
+    # ========================================================
 
     realtime_df = await try_realtime_candles(
         client,
@@ -1048,9 +1442,9 @@ async def get_candles(
         ):
             return realtime_df
 
-    # ---------------------------------------------------------
-    # 2. RAW GET_CANDLES
-    # ---------------------------------------------------------
+    # ========================================================
+    # NORMAL GET_CANDLES
+    # ========================================================
 
     raw_method = getattr(
         client,
@@ -1074,14 +1468,9 @@ async def get_candles(
             ):
                 return df
 
-            print(
-                "🟡 RAW candles stale; retrying...",
-                flush=True
-            )
-
-    # ---------------------------------------------------------
-    # 3. DATAFRAME METHOD
-    # ---------------------------------------------------------
+    # ========================================================
+    # DATAFRAME METHOD
+    # ========================================================
 
     df_method = getattr(
         client,
@@ -1105,23 +1494,12 @@ async def get_candles(
             ):
                 return df
 
-            print(
-                "🟡 DATAFRAME candles stale.",
-                flush=True
-            )
-
-    # ---------------------------------------------------------
-    # 4. SECOND FRESH RETRY
-    # ---------------------------------------------------------
+    # ========================================================
+    # SECOND RETRY
+    # ========================================================
 
     await asyncio.sleep(1)
 
-    df_method = getattr(
-        client,
-        "get_candles_dataframe",
-        None
-    )
-
     if callable(df_method):
 
         df = await call_method_flexible(
@@ -1138,20 +1516,20 @@ async def get_candles(
             ):
                 return df
 
-    # ---------------------------------------------------------
-    # 5. CNY ONLY — DIRECT FALLBACK
-    # ---------------------------------------------------------
+    # ========================================================
+    # CNY SUBSCRIPTION SECOND CHANCE
+    # ========================================================
 
     if asset_code in CNY_OTC_ASSETS:
 
-        cny_df = await try_cny_direct_candles(
+        cny_subscription = await try_cny_subscription(
             client,
             asset_code,
             timeframe
         )
 
-        if cny_df is not None:
-            return cny_df
+        if cny_subscription is not None:
+            return cny_subscription
 
     return None
 
@@ -1414,12 +1792,10 @@ WAIT
             data = response.json()
 
             try:
-
                 return (
                     data["candidates"][0]
                     ["content"]["parts"][0]["text"]
                 )
-
             except Exception:
                 return ""
 
@@ -1429,22 +1805,13 @@ WAIT
             )
         ).strip().upper()
 
-        if re.search(
-            r"\bBUY\b",
-            answer
-        ):
+        if re.search(r"\bBUY\b", answer):
             return "BUY"
 
-        if re.search(
-            r"\bSELL\b",
-            answer
-        ):
+        if re.search(r"\bSELL\b", answer):
             return "SELL"
 
-        if re.search(
-            r"\bWAIT\b",
-            answer
-        ):
+        if re.search(r"\bWAIT\b", answer):
             return "WAIT"
 
         return "ERROR"
@@ -1458,10 +1825,6 @@ WAIT
         )
 
         return "ERROR"
-
-
-def direction_text(value):
-    return value if value else "NEUTRAL ⚪"
 
 
 def build_signal_panel(
@@ -1630,10 +1993,9 @@ async def get_signal(
 
         if "_ts" in df.columns:
 
-            df = df.sort_values(
-                "_ts"
-            ).reset_index(
-                drop=True
+            df = (
+                df.sort_values("_ts")
+                .reset_index(drop=True)
             )
 
         df["MA10"] = (
@@ -1672,38 +2034,18 @@ async def get_signal(
             latest["RSI"]
         )
 
-        if (
-            price > ma10
-            and ma10 > ma50
-        ):
-
+        if price > ma10 and ma10 > ma50:
             trend = "CALL 🟢"
-
-        elif (
-            price < ma10
-            and ma10 < ma50
-        ):
-
+        elif price < ma10 and ma10 < ma50:
             trend = "PUT 🔴"
-
         else:
-
             trend = "NEUTRAL ⚪"
 
-        if (
-            50 <= rsi <= 70
-        ):
-
+        if 50 <= rsi <= 70:
             rsi_signal = "CALL 🟢"
-
-        elif (
-            30 <= rsi < 50
-        ):
-
+        elif 30 <= rsi < 50:
             rsi_signal = "PUT 🔴"
-
         else:
-
             rsi_signal = "NEUTRAL ⚪"
 
         current_close = float(
@@ -1723,27 +2065,17 @@ async def get_signal(
         )
 
         if current_close > current_open:
-
             current_signal = "CALL 🟢"
-
         elif current_close < current_open:
-
             current_signal = "PUT 🔴"
-
         else:
-
             current_signal = "NEUTRAL ⚪"
 
         if previous_close > previous_open:
-
             previous_signal = "CALL 🟢"
-
         elif previous_close < previous_open:
-
             previous_signal = "PUT 🔴"
-
         else:
-
             previous_signal = "NEUTRAL ⚪"
 
         higher_tf = HIGHER_TIMEFRAME[
@@ -1790,15 +2122,10 @@ async def get_signal(
                 )
 
                 if h_close > h_open:
-
                     higher_signal = "CALL 🟢"
-
                 elif h_close < h_open:
-
                     higher_signal = "PUT 🔴"
-
                 else:
-
                     higher_signal = "NEUTRAL ⚪"
 
         call_count = 0
@@ -1814,18 +2141,15 @@ async def get_signal(
 
             if value.startswith("CALL"):
                 call_count += 1
-
             elif value.startswith("PUT"):
                 put_count += 1
 
         technical = (
             f"CALL {call_count}/5"
             if call_count > put_count
-            else
-            f"PUT {put_count}/5"
+            else f"PUT {put_count}/5"
             if put_count > call_count
-            else
-            "WAIT"
+            else "WAIT"
         )
 
         accuracy = calculate_accuracy(
@@ -1857,18 +2181,9 @@ async def get_signal(
 
         final_signal = "WAIT"
 
-        if (
-            call_count >= 4
-            and sr_pass
-        ):
-
+        if call_count >= 4 and sr_pass:
             final_signal = "BUY"
-
-        elif (
-            put_count >= 4
-            and sr_pass
-        ):
-
+        elif put_count >= 4 and sr_pass:
             final_signal = "SELL"
 
         return build_signal_panel(
@@ -2108,7 +2423,6 @@ async def message_handler(
         return
 
     text = update.message.text
-
     user_id = update.effective_user.id
 
     if text == "📋 PAIRS":
@@ -2116,7 +2430,6 @@ async def message_handler(
         await show_pair_categories(
             update
         )
-
         return
 
     if text == "⏱ TIMEFRAME":
@@ -2124,7 +2437,6 @@ async def message_handler(
         await show_timeframes(
             update
         )
-
         return
 
     if text == "⌛ EXPIRY":
@@ -2132,7 +2444,6 @@ async def message_handler(
         await show_expiries(
             update
         )
-
         return
 
     if text == "ℹ️ STATUS":
@@ -2170,9 +2481,7 @@ async def message_handler(
 
     if text in CATEGORIES:
 
-        user_category[
-            user_id
-        ] = text
+        user_category[user_id] = text
 
         await show_pairs(
             update,
@@ -2183,9 +2492,7 @@ async def message_handler(
 
     if text in TIMEFRAMES:
 
-        user_timeframe[
-            user_id
-        ] = text
+        user_timeframe[user_id] = text
 
         await update.message.reply_text(
             f"✅ Timeframe: {text}\n\n"
@@ -2196,9 +2503,7 @@ async def message_handler(
 
     if text in EXPIRIES:
 
-        user_expiry[
-            user_id
-        ] = text
+        user_expiry[user_id] = text
 
         await update.message.reply_text(
             f"✅ Expiry: {text}\n\n"
@@ -2233,9 +2538,7 @@ class HealthHandler(
 
     def do_GET(self):
 
-        self.send_response(
-            200
-        )
+        self.send_response(200)
 
         self.send_header(
             "Content-type",
@@ -2347,8 +2650,7 @@ def main():
 
     app.add_handler(
         MessageHandler(
-            filters.TEXT
-            & ~filters.COMMAND,
+            filters.TEXT & ~filters.COMMAND,
             message_handler
         )
     )
