@@ -675,45 +675,50 @@ def normalize_candle_dataframe(raw):
         return None
 
 
-def candle_is_current_or_recent(df, timeframe, tolerance_bars=1):
+def candle_is_current_or_recent(df, timeframe, tolerance_bars=0):
     """
-    Verifies that the newest candle is not several candles behind.
+    LIVE mode freshness check.
 
-    We do NOT reject the current candle simply because it is still open.
-    An open/current candle is exactly what is needed for on-time analysis.
+    The newest row must be the currently-open candle (or the candle that
+    opened within the current timeframe). We do not accept candles that are
+    one or more full bars behind, because that can create a delayed signal.
     """
 
     if df is None or df.empty:
         return False
 
     if "_ts" not in df.columns:
-        # Some Pocket Option responses don't expose timestamps.
-        # In that case we cannot prove staleness.
-        return True
+        # Without timestamps we cannot prove that the data is live.
+        print("🟡 LIVE CHECK: candle timestamps unavailable.", flush=True)
+        return False
 
     timestamps = df["_ts"].dropna()
-
     if timestamps.empty:
-        return True
+        return False
 
     latest_ts = float(timestamps.iloc[-1])
     now_ts = time.time()
-
     age = now_ts - latest_ts
 
-    max_age = (
-        timeframe * (tolerance_bars + 1)
-        + 15
-    )
+    # Pocket Option candle timestamps normally identify the candle OPEN.
+    # Therefore a current open candle can legitimately be almost one whole
+    # timeframe old, but it must not be older than one full bar plus a small
+    # network tolerance.
+    max_age = timeframe + 5
 
-    if age > max_age:
+    if age < -5 or age > max_age:
         print(
-            f"🔴 STALE CANDLES: age={age:.1f}s "
+            f"🔴 LIVE CANDLE REJECTED: age={age:.1f}s "
             f"timeframe={timeframe}s",
             flush=True
         )
         return False
 
+    print(
+        f"🟢 LIVE CANDLE OK: age={age:.1f}s "
+        f"timeframe={timeframe}s",
+        flush=True
+    )
     return True
 
 
@@ -873,6 +878,28 @@ async def try_realtime_candles(client, variants, timeframe):
     return None
 
 
+async def get_live_candles_strict(client, variants, timeframe):
+    """
+    Get the live/current candle first and reject stale realtime responses.
+    Historical candles may still be used by the caller only as indicator
+    history, but the last candle used for the signal must be current.
+    """
+    realtime_df = await try_realtime_candles(
+        client,
+        variants,
+        timeframe
+    )
+
+    if realtime_df is not None and candle_is_current_or_recent(
+        realtime_df,
+        timeframe,
+        tolerance_bars=0
+    ):
+        return realtime_df
+
+    return None
+
+
 async def get_candles(client, asset_code, timeframe):
 
     variants = get_asset_variants(asset_code)
@@ -914,19 +941,14 @@ async def get_candles(client, asset_code, timeframe):
     # 1. REALTIME/LIVE CANDLE FIRST
     # ---------------------------------------------------------
 
-    realtime_df = await try_realtime_candles(
+    realtime_df = await get_live_candles_strict(
         client,
         variants,
         timeframe
     )
 
     if realtime_df is not None:
-
-        if candle_is_current_or_recent(
-            realtime_df,
-            timeframe
-        ):
-            return realtime_df
+        return realtime_df
 
     # ---------------------------------------------------------
     # 2. RAW GET_CANDLES
@@ -950,7 +972,8 @@ async def get_candles(client, asset_code, timeframe):
 
             if candle_is_current_or_recent(
                 df,
-                timeframe
+                timeframe,
+                tolerance_bars=0
             ):
                 return df
 
@@ -981,7 +1004,8 @@ async def get_candles(client, asset_code, timeframe):
 
             if candle_is_current_or_recent(
                 df,
-                timeframe
+                timeframe,
+                tolerance_bars=0
             ):
                 return df
 
@@ -1467,7 +1491,7 @@ async def get_signal(
 
             return (
                 "━━━━━━━━━━━━━━━━━━━━\n"
-                "🤖 NAASIRFX AI SIGNAL\n"
+                "🤖 NAASIRFX AI SIGNAL — LIVE NOW\n"
                 "━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"💱 {display_asset}\n\n"
                 "⚪ FINAL: WAIT\n\n"
