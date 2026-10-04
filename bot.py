@@ -876,6 +876,9 @@ async def try_realtime_candles(client, variants, timeframe):
 
 
 async def get_candles(client, asset_code, timeframe):
+    global LAST_SIGNAL_DATA_SOURCE
+    LAST_SIGNAL_DATA_SOURCE = "UNKNOWN"
+
 
     variants = get_asset_variants(asset_code)
 
@@ -931,7 +934,6 @@ async def get_candles(client, asset_code, timeframe):
             timeframe,
             tolerance_bars=1
         ):
-            global LAST_SIGNAL_DATA_SOURCE
             LAST_SIGNAL_DATA_SOURCE = "REALTIME"
             print(
                 f"🟢 SIGNAL DATA SOURCE: REALTIME {asset_code}",
@@ -964,7 +966,6 @@ async def get_candles(client, asset_code, timeframe):
                 timeframe,
                 tolerance_bars=1
             ):
-                global LAST_SIGNAL_DATA_SOURCE
                 LAST_SIGNAL_DATA_SOURCE = "FRESH GET_CANDLES"
                 print(
                     f"🟢 SIGNAL DATA SOURCE: FRESH GET_CANDLES {asset_code}",
@@ -1002,7 +1003,6 @@ async def get_candles(client, asset_code, timeframe):
                 timeframe,
                 tolerance_bars=1
             ):
-                global LAST_SIGNAL_DATA_SOURCE
                 LAST_SIGNAL_DATA_SOURCE = "FRESH DATAFRAME"
                 print(
                     f"🟢 SIGNAL DATA SOURCE: FRESH DATAFRAME {asset_code}",
@@ -1042,7 +1042,6 @@ async def get_candles(client, asset_code, timeframe):
                 timeframe,
                 tolerance_bars=1
             ):
-                global LAST_SIGNAL_DATA_SOURCE
                 LAST_SIGNAL_DATA_SOURCE = "RETRY"
                 print(
                     f"🟢 SIGNAL DATA SOURCE: RETRY {asset_code}",
@@ -1431,7 +1430,8 @@ def build_signal_panel(
 
     return (
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "🤖 NAASIRFX AI SIGNAL — LIVE DATA\n"            f"📡 Data source: {LAST_SIGNAL_DATA_SOURCE}\n"
+        "🤖 NAASIRFX AI SIGNAL — LIVE DATA\n"
+        f"📡 Data source: {LAST_SIGNAL_DATA_SOURCE}\n"
 
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         f"💱 {asset}\n\n"
