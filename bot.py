@@ -265,29 +265,32 @@ CNY_OTC_ASSETS = {
 CNY_OTC_SYMBOLS = tuple(CNY_OTC_ASSETS.keys())
 
 
-def register_cny_otc_assets():
-    """Register CNY OTC symbols with the installed client."""
+def register_otc_assets():
+    """Register every Forex OTC symbol defined by the bot."""
     if PO_ASSETS is None:
         print("🟡 POCKET OPTION ASSETS registry not available.", flush=True)
         return
 
+    symbols = set(CNY_OTC_SYMBOLS)
+    try:
+        symbols.update(str(v).strip() for v in FOREX_OTC_PAIRS.values())
+    except Exception:
+        pass
+
     added = []
-    for symbol in CNY_OTC_SYMBOLS:
+    for symbol in sorted(s for s in symbols if s):
         if symbol not in PO_ASSETS:
-            PO_ASSETS[symbol] = {
-                "name": symbol,
-                "symbol": symbol
-            }
+            PO_ASSETS[symbol] = {"name": symbol, "symbol": symbol}
             added.append(symbol)
 
-    if added:
-        print(
-            f"🟢 REGISTERED CNY OTC ASSETS: {', '.join(added)}",
-            flush=True
-        )
+    print(
+        f"🟢 OTC ASSETS REGISTERED: {len(symbols)} total, "
+        f"{len(added)} added",
+        flush=True
+    )
 
 
-register_cny_otc_assets()
+register_otc_assets()
 
 
 user_category = {}
@@ -874,23 +877,30 @@ async def get_candles(client, asset_code, timeframe):
 
     variants = get_asset_variants(asset_code)
 
-    # CNY OTC: use the exact Pocket Option symbol first.
-    # The async client expects symbols such as AEDCNY_otc.
-    if str(asset_code).strip().upper().endswith("CNY_OTC"):
+    # OTC assets: exact Pocket Option symbol first.
+    is_otc = str(asset_code).strip().lower().endswith("_otc")
+
+    if is_otc:
         exact = str(asset_code).strip()
         variants = [exact] + [v for v in variants if v != exact]
 
-        try:
-            discovered = await discover_cny_asset_variants(
-                client,
-                asset_code
-            )
-        except Exception:
-            discovered = []
+        if exact.upper().endswith("CNY_OTC"):
+            try:
+                discovered = await discover_cny_asset_variants(
+                    client,
+                    asset_code
+                )
+            except Exception:
+                discovered = []
 
-        for item in discovered:
-            if item not in variants:
-                variants.append(item)
+            for item in discovered:
+                if item not in variants:
+                    variants.append(item)
+
+        print(
+            f"🔎 OTC CANDLE VARIANTS [{asset_code}]: {variants}",
+            flush=True
+        )
     else:
         id_discovered = await discover_asset_variants_by_id(
             client,
@@ -899,12 +909,6 @@ async def get_candles(client, asset_code, timeframe):
         for item in id_discovered:
             if item not in variants:
                 variants.append(item)
-
-    if str(asset_code).strip().upper().endswith("CNY_OTC"):
-        print(
-            f"🔎 CNY CANDLE VARIANTS: {variants}",
-            flush=True
-        )
 
     # ---------------------------------------------------------
     # 1. REALTIME/LIVE CANDLE FIRST
