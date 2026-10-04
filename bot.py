@@ -12,34 +12,18 @@ import pandas as pd
 import requests
 
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
 from pocketoptionapi_async import AsyncPocketOptionClient
 
 
-# ============================================================
-# ENVIRONMENT VARIABLES
-# ============================================================
+# =========================================================
+# ENVIRONMENT
+# =========================================================
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-
-PO_SSID = (
-    os.getenv("POCKET_OPTION_SSID")
-    or os.getenv("PO_SSID")
-)
-
+PO_SSID = os.getenv("POCKET_OPTION_SSID") or os.getenv("PO_SSID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-
-# ============================================================
-# SETTINGS
-# ============================================================
 
 IS_DEMO = True
 
@@ -49,6 +33,10 @@ CANDLE_COUNT = 100
 
 AI_MODEL = "gemini-2.5-flash-lite"
 
+
+# =========================================================
+# TIMEFRAMES
+# =========================================================
 
 TIMEFRAMES = {
     "1️⃣ 1 Minute": 60,
@@ -95,9 +83,9 @@ HIGHER_TIMEFRAME_NAME = {
 }
 
 
-# ============================================================
+# =========================================================
 # FOREX
-# ============================================================
+# =========================================================
 
 FOREX_PAIRS = {
     "EUR/USD": "EURUSD",
@@ -127,9 +115,9 @@ FOREX_PAIRS = {
 }
 
 
-# ============================================================
+# =========================================================
 # FOREX OTC
-# ============================================================
+# =========================================================
 
 FOREX_OTC_PAIRS = {
     "EUR/USD OTC": "EURUSD_otc",
@@ -193,9 +181,9 @@ FOREX_OTC_PAIRS = {
 }
 
 
-# ============================================================
+# =========================================================
 # STOCKS
-# ============================================================
+# =========================================================
 
 STOCK_NAMES = {
     "🍎 Apple": "#AAPL",
@@ -242,10 +230,6 @@ STOCK_NAMES = {
 }
 
 
-# ============================================================
-# STOCKS OTC
-# ============================================================
-
 STOCK_OTC_NAMES = {
     "🍎 Apple OTC": "#AAPL_otc",
     "💳 American Express OTC": "#AXP_otc",
@@ -291,10 +275,6 @@ STOCK_OTC_NAMES = {
 }
 
 
-# ============================================================
-# CATEGORIES
-# ============================================================
-
 CATEGORIES = {
     "💱 Forex": FOREX_PAIRS,
     "💱 Forex OTC": FOREX_OTC_PAIRS,
@@ -303,9 +283,9 @@ CATEGORIES = {
 }
 
 
-# ============================================================
-# CNY OTC ASSET IDS
-# ============================================================
+# =========================================================
+# CNY OTC IDS
+# =========================================================
 
 CNY_OTC_ASSETS = {
     "AEDCNY_otc": 538,
@@ -317,19 +297,9 @@ CNY_OTC_ASSETS = {
 }
 
 
-CNY_OTC_SYMBOLS = tuple(CNY_OTC_ASSETS.keys())
-
-
-# ============================================================
-# DATA SOURCE STATUS
-# ============================================================
-
-LAST_SIGNAL_DATA_SOURCE = "UNKNOWN"
-
-
-# ============================================================
+# =========================================================
 # POCKET OPTION ASSET REGISTRY
-# ============================================================
+# =========================================================
 
 try:
     from pocketoptionapi_async.constants import ASSETS as PO_ASSETS
@@ -340,13 +310,15 @@ except Exception:
 def register_otc_assets():
 
     if PO_ASSETS is None:
+
         print(
             "🟡 POCKET OPTION ASSETS registry not available.",
             flush=True
         )
+
         return
 
-    symbols = set(CNY_OTC_SYMBOLS)
+    symbols = set(CNY_OTC_ASSETS.keys())
 
     try:
         symbols.update(
@@ -358,9 +330,7 @@ def register_otc_assets():
 
     added = []
 
-    for symbol in sorted(
-        s for s in symbols if s
-    ):
+    for symbol in sorted(symbols):
 
         if symbol not in PO_ASSETS:
 
@@ -382,18 +352,20 @@ def register_otc_assets():
 register_otc_assets()
 
 
-# ============================================================
+# =========================================================
 # USER STATE
-# ============================================================
+# =========================================================
 
 user_category = {}
 user_timeframe = {}
 user_expiry = {}
 
+LAST_SIGNAL_DATA_SOURCE = "UNKNOWN"
 
-# ============================================================
-# HELPERS
-# ============================================================
+
+# =========================================================
+# UI HELPERS
+# =========================================================
 
 def button_rows(items, size=2):
 
@@ -415,9 +387,9 @@ def button_rows(items, size=2):
     return rows
 
 
-# ============================================================
+# =========================================================
 # CONNECT POCKET OPTION
-# ============================================================
+# =========================================================
 
 async def connect_client():
 
@@ -457,15 +429,13 @@ async def connect_client():
         raise
 
 
-# ============================================================
+# =========================================================
 # ASSET VARIANTS
-# ============================================================
+# =========================================================
 
 def get_asset_variants(asset_code):
 
-    original = str(
-        asset_code
-    ).strip()
+    original = str(asset_code).strip()
 
     variants = []
 
@@ -475,71 +445,38 @@ def get_asset_variants(asset_code):
             variants.append(value)
 
     add(original)
-
-    add(
-        original.replace(
-            "/",
-            ""
-        )
-    )
+    add(original.replace("/", ""))
 
     if original.lower().endswith("_otc"):
 
         base = original[:-4]
 
-        add(
-            base + "_otc"
-        )
-
-        add(
-            base.upper() + "_otc"
-        )
-
-        add(
-            base.upper() + "-OTC"
-        )
-
-        add(
-            base.upper() + " OTC"
-        )
-
-        add(
-            base.upper() + "_OTC"
-        )
+        add(base + "_otc")
+        add(base.upper() + "_otc")
+        add(base.upper() + "-OTC")
+        add(base.upper() + " OTC")
+        add(base.upper() + "_OTC")
 
         if base.startswith("#"):
 
             clean = base[1:]
 
-            add(
-                "#" + clean + "_otc"
-            )
-
-            add(
-                clean + "_otc"
-            )
+            add("#" + clean + "_otc")
+            add(clean + "_otc")
 
     else:
 
-        add(
-            original + "_otc"
-        )
-
-        add(
-            original.replace(
-                "/",
-                ""
-            ) + "_otc"
-        )
+        add(original + "_otc")
+        add(original.replace("/", "") + "_otc")
 
     return variants
 
 
-# ============================================================
-# CNY ASSET DISCOVERY
-# ============================================================
+# =========================================================
+# ASSET DISCOVERY
+# =========================================================
 
-async def discover_cny_asset_variants(
+async def discover_asset_variants_by_id(
     client,
     asset_code
 ):
@@ -550,220 +487,6 @@ async def discover_cny_asset_variants(
 
     if asset_id is None:
         return []
-
-    method = getattr(
-        client,
-        "get_assets",
-        None
-    )
-
-    if not callable(method):
-        return []
-
-    try:
-
-        assets = await asyncio.wait_for(
-            method(),
-            timeout=10
-        )
-
-    except Exception as e:
-
-        print(
-            f"🟡 CNY ASSET DISCOVERY ERROR "
-            f"{asset_code}: {e}",
-            flush=True
-        )
-
-        return []
-
-    found = []
-
-    def add(value):
-
-        if value is None:
-            return
-
-        value = str(
-            value
-        ).strip()
-
-        if value and value not in found:
-            found.append(value)
-
-    def same_id(value):
-
-        try:
-            return int(value) == int(asset_id)
-        except Exception:
-            return (
-                str(value).strip()
-                == str(asset_id)
-            )
-
-    id_keys = (
-        "id",
-        "asset_id",
-        "active_id",
-        "activeId",
-        "symbol_id"
-    )
-
-    name_keys = (
-        "symbol",
-        "asset",
-        "name",
-        "ticker",
-        "code",
-        "pair"
-    )
-
-    if isinstance(
-        assets,
-        dict
-    ):
-
-        for key, value in assets.items():
-
-            if same_id(key):
-
-                if isinstance(
-                    value,
-                    dict
-                ):
-
-                    for k in name_keys:
-                        add(
-                            value.get(k)
-                        )
-
-                else:
-                    add(value)
-
-            if same_id(value):
-                add(key)
-
-            if isinstance(
-                value,
-                dict
-            ):
-
-                ids = [
-                    value.get(k)
-                    for k in id_keys
-                ]
-
-                if any(
-                    same_id(v)
-                    for v in ids
-                ):
-
-                    for k in name_keys:
-                        add(
-                            value.get(k)
-                        )
-
-        candidates = list(
-            assets.values()
-        )
-
-    elif isinstance(
-        assets,
-        (
-            list,
-            tuple,
-            set
-        )
-    ):
-
-        candidates = list(
-            assets
-        )
-
-    else:
-
-        candidates = [assets]
-
-    for item in candidates:
-
-        if isinstance(
-            item,
-            dict
-        ):
-
-            ids = [
-                item.get(k)
-                for k in id_keys
-            ]
-
-            if any(
-                same_id(v)
-                for v in ids
-            ):
-
-                for k in name_keys:
-                    add(
-                        item.get(k)
-                    )
-
-        else:
-
-            ids = []
-
-            for k in id_keys:
-
-                try:
-
-                    ids.append(
-                        getattr(
-                            item,
-                            k,
-                            None
-                        )
-                    )
-
-                except Exception:
-                    pass
-
-            if any(
-                same_id(v)
-                for v in ids
-            ):
-
-                for k in name_keys:
-
-                    try:
-
-                        add(
-                            getattr(
-                                item,
-                                k,
-                                None
-                            )
-                        )
-
-                    except Exception:
-                        pass
-
-    if found:
-
-        print(
-            f"🟢 CNY ASSET DISCOVERY "
-            f"{asset_code}: {found}",
-            flush=True
-        )
-
-    return found
-
-
-# ============================================================
-# GENERAL ASSET DISCOVERY
-# ============================================================
-
-async def discover_asset_variants_by_id(
-    client,
-    asset_code
-):
 
     method = getattr(
         client,
@@ -798,12 +521,30 @@ async def discover_asset_variants_by_id(
         if value is None:
             return
 
-        value = str(
-            value
-        ).strip()
+        value = str(value).strip()
 
         if value and value not in found:
             found.append(value)
+
+    def same_id(value):
+
+        try:
+            return int(value) == int(asset_id)
+
+        except Exception:
+
+            return (
+                str(value).strip()
+                == str(asset_id)
+            )
+
+    id_keys = (
+        "id",
+        "asset_id",
+        "active_id",
+        "activeId",
+        "symbol_id"
+    )
 
     name_keys = (
         "symbol",
@@ -814,12 +555,38 @@ async def discover_asset_variants_by_id(
         "pair"
     )
 
-    candidates = []
+    if isinstance(assets, dict):
 
-    if isinstance(
-        assets,
-        dict
-    ):
+        for key, value in assets.items():
+
+            if same_id(key):
+
+                if isinstance(value, dict):
+
+                    for k in name_keys:
+                        add(value.get(k))
+
+                else:
+
+                    add(value)
+
+            if same_id(value):
+                add(key)
+
+            if isinstance(value, dict):
+
+                ids = [
+                    value.get(k)
+                    for k in id_keys
+                ]
+
+                if any(
+                    same_id(v)
+                    for v in ids
+                ):
+
+                    for k in name_keys:
+                        add(value.get(k))
 
         candidates = list(
             assets.values()
@@ -827,47 +594,66 @@ async def discover_asset_variants_by_id(
 
     elif isinstance(
         assets,
-        (
-            list,
-            tuple,
-            set
-        )
+        (list, tuple, set)
     ):
 
-        candidates = list(
-            assets
-        )
+        candidates = list(assets)
+
+    else:
+
+        candidates = [assets]
 
     for item in candidates:
 
-        if isinstance(
-            item,
-            dict
-        ):
+        if isinstance(item, dict):
 
-            names = [
+            ids = [
                 item.get(k)
-                for k in name_keys
+                for k in id_keys
             ]
 
-            for value in names:
+            if any(
+                same_id(v)
+                for v in ids
+            ):
 
-                if value is None:
-                    continue
+                for k in name_keys:
+                    add(item.get(k))
 
-                value = str(
-                    value
-                ).strip()
+        else:
 
-                if (
-                    value.upper()
-                    == str(asset_code).upper()
-                ):
+            ids = []
 
-                    for k in name_keys:
-                        add(
-                            item.get(k)
+            for k in id_keys:
+
+                try:
+                    ids.append(
+                        getattr(
+                            item,
+                            k,
+                            None
                         )
+                    )
+                except Exception:
+                    pass
+
+            if any(
+                same_id(v)
+                for v in ids
+            ):
+
+                for k in name_keys:
+
+                    try:
+                        add(
+                            getattr(
+                                item,
+                                k,
+                                None
+                            )
+                        )
+                    except Exception:
+                        pass
 
     if found:
 
@@ -880,9 +666,24 @@ async def discover_asset_variants_by_id(
     return found
 
 
-# ============================================================
+# =========================================================
+# CNY DISCOVERY FIX
+# =========================================================
+
+async def discover_cny_asset_variants(
+    client,
+    asset_code
+):
+
+    return await discover_asset_variants_by_id(
+        client,
+        asset_code
+    )
+
+
+# =========================================================
 # DATAFRAME NORMALIZATION
-# ============================================================
+# =========================================================
 
 def _find_time_column(df):
 
@@ -976,16 +777,11 @@ def normalize_candle_dataframe(raw):
                 for v in raw.values()
             ):
 
-                df = pd.DataFrame(
-                    raw
-                )
+                df = pd.DataFrame(raw)
 
             elif isinstance(
                 raw.get("candles"),
-                (
-                    list,
-                    tuple
-                )
+                (list, tuple)
             ):
 
                 df = pd.DataFrame(
@@ -994,10 +790,7 @@ def normalize_candle_dataframe(raw):
 
             elif isinstance(
                 raw.get("data"),
-                (
-                    list,
-                    tuple
-                )
+                (list, tuple)
             ):
 
                 df = pd.DataFrame(
@@ -1006,15 +799,11 @@ def normalize_candle_dataframe(raw):
 
             else:
 
-                df = pd.DataFrame(
-                    raw
-                )
+                df = pd.DataFrame(raw)
 
         else:
 
-            df = pd.DataFrame(
-                raw
-            )
+            df = pd.DataFrame(raw)
 
         if df.empty:
             return None
@@ -1037,14 +826,9 @@ def normalize_candle_dataframe(raw):
             columns=rename_map
         )
 
-        required = [
-            "open",
-            "close"
-        ]
-
         if not all(
             c in df.columns
-            for c in required
+            for c in ["open", "close"]
         ):
 
             return None
@@ -1099,7 +883,9 @@ def normalize_candle_dataframe(raw):
                 df = (
                     df
                     .sort_values("_ts")
-                    .reset_index(drop=True)
+                    .reset_index(
+                        drop=True
+                    )
                 )
 
         else:
@@ -1121,9 +907,9 @@ def normalize_candle_dataframe(raw):
         return None
 
 
-# ============================================================
-# FRESHNESS CHECK
-# ============================================================
+# =========================================================
+# LIVE / FRESH CHECK
+# =========================================================
 
 def candle_is_current_or_recent(
     df,
@@ -1137,8 +923,8 @@ def candle_is_current_or_recent(
     if "_ts" not in df.columns:
 
         print(
-            "🟡 Candle timestamps unavailable; "
-            "freshness cannot be fully verified.",
+            "🟡 Candle timestamp lama helin; "
+            "freshness lama xaqiijin karo.",
             flush=True
         )
 
@@ -1161,8 +947,8 @@ def candle_is_current_or_recent(
     age = now_ts - latest_ts
 
     max_age = (
-        timeframe *
-        (tolerance_bars + 1)
+        timeframe
+        * (tolerance_bars + 1)
         + 15
     )
 
@@ -1171,24 +957,25 @@ def candle_is_current_or_recent(
         print(
             f"🔴 STALE CANDLES: "
             f"age={age:.1f}s "
-            f"timeframe={timeframe}s",
+            f"TF={timeframe}s",
             flush=True
         )
 
         return False
 
     print(
-        f"🟢 CANDLE FRESHNESS: "
-        f"age={age:.1f}s",
+        f"🟢 FRESH CANDLE: "
+        f"age={age:.1f}s "
+        f"TF={timeframe}s",
         flush=True
     )
 
     return True
 
 
-# ============================================================
-# FLEXIBLE CANDLE CALL
-# ============================================================
+# =========================================================
+# FLEXIBLE CANDLE METHOD
+# =========================================================
 
 async def call_method_flexible(
     method,
@@ -1239,7 +1026,7 @@ async def call_method_flexible(
                     "asset": variant,
                     "timeframe": timeframe
                 }
-            ),
+            )
         ]
 
         for args, kwargs in calls:
@@ -1274,7 +1061,6 @@ async def call_method_flexible(
                     return df
 
             except TypeError:
-
                 continue
 
             except Exception as e:
@@ -1288,9 +1074,9 @@ async def call_method_flexible(
     return None
 
 
-# ============================================================
+# =========================================================
 # REALTIME CANDLES
-# ============================================================
+# =========================================================
 
 async def try_realtime_candles(
     client,
@@ -1347,7 +1133,7 @@ async def try_realtime_candles(
                     {
                         "timeframe": timeframe
                     }
-                ),
+                )
             ]
 
             for args, kwargs in calls:
@@ -1381,24 +1167,23 @@ async def try_realtime_candles(
                         return df
 
                 except TypeError:
-
                     continue
 
                 except Exception as e:
 
                     print(
                         f"🟡 REALTIME FAIL "
-                        f"{method_name}/"
-                        f"{variant}: {e}",
+                        f"{method_name}/{variant}: "
+                        f"{e}",
                         flush=True
                     )
 
     return None
 
 
-# ============================================================
-# GET CANDLES
-# ============================================================
+# =========================================================
+# GET LIVE CANDLES
+# =========================================================
 
 async def get_candles(
     client,
@@ -1435,23 +1220,14 @@ async def get_candles(
             if v != exact
         ]
 
-        if exact.lower() in [
-            x.lower()
-            for x in CNY_OTC_SYMBOLS
-        ]:
+        if exact.upper().endswith(
+            "CNY_OTC"
+        ):
 
-            try:
-
-                discovered = (
-                    await discover_cny_asset_variants(
-                        client,
-                        asset_code
-                    )
-                )
-
-            except Exception:
-
-                discovered = []
+            discovered = await discover_cny_asset_variants(
+                client,
+                asset_code
+            )
 
             for item in discovered:
 
@@ -1459,8 +1235,9 @@ async def get_candles(
                     variants.append(item)
 
         print(
-            f"🔎 OTC CANDLE VARIANTS "
-            f"[{asset_code}]: {variants}",
+            f"🔎 OTC VARIANTS "
+            f"[{asset_code}]: "
+            f"{variants}",
             flush=True
         )
 
@@ -1478,24 +1255,21 @@ async def get_candles(
             if item not in variants:
                 variants.append(item)
 
-    # ========================================================
-    # 1. REALTIME FIRST
-    # ========================================================
+    # =====================================================
+    # 1. REALTIME
+    # =====================================================
 
-    realtime_df = (
-        await try_realtime_candles(
-            client,
-            variants,
-            timeframe
-        )
+    realtime_df = await try_realtime_candles(
+        client,
+        variants,
+        timeframe
     )
 
     if realtime_df is not None:
 
         if candle_is_current_or_recent(
             realtime_df,
-            timeframe,
-            tolerance_bars=1
+            timeframe
         ):
 
             LAST_SIGNAL_DATA_SOURCE = "REALTIME"
@@ -1508,9 +1282,9 @@ async def get_candles(
 
             return realtime_df
 
-    # ========================================================
-    # 2. GET_CANDLES
-    # ========================================================
+    # =====================================================
+    # 2. GET CANDLES
+    # =====================================================
 
     raw_method = getattr(
         client,
@@ -1530,8 +1304,7 @@ async def get_candles(
 
             if candle_is_current_or_recent(
                 df,
-                timeframe,
-                tolerance_bars=1
+                timeframe
             ):
 
                 LAST_SIGNAL_DATA_SOURCE = (
@@ -1547,9 +1320,9 @@ async def get_candles(
 
                 return df
 
-    # ========================================================
+    # =====================================================
     # 3. DATAFRAME
-    # ========================================================
+    # =====================================================
 
     df_method = getattr(
         client,
@@ -1569,8 +1342,7 @@ async def get_candles(
 
             if candle_is_current_or_recent(
                 df,
-                timeframe,
-                tolerance_bars=1
+                timeframe
             ):
 
                 LAST_SIGNAL_DATA_SOURCE = (
@@ -1586,9 +1358,9 @@ async def get_candles(
 
                 return df
 
-    # ========================================================
+    # =====================================================
     # 4. RETRY
-    # ========================================================
+    # =====================================================
 
     await asyncio.sleep(1)
 
@@ -1604,26 +1376,19 @@ async def get_candles(
 
             if candle_is_current_or_recent(
                 df,
-                timeframe,
-                tolerance_bars=1
+                timeframe
             ):
 
                 LAST_SIGNAL_DATA_SOURCE = "RETRY"
-
-                print(
-                    f"🟢 SIGNAL DATA SOURCE: "
-                    f"RETRY {asset_code}",
-                    flush=True
-                )
 
                 return df
 
     return None
 
 
-# ============================================================
+# =========================================================
 # RSI
-# ============================================================
+# =========================================================
 
 def calculate_rsi(
     series,
@@ -1695,9 +1460,9 @@ def calculate_rsi(
     return rsi
 
 
-# ============================================================
-# ACCURACY DISPLAY
-# ============================================================
+# =========================================================
+# TECHNICAL STRENGTH
+# =========================================================
 
 def calculate_accuracy(
     call_count,
@@ -1722,9 +1487,9 @@ def calculate_accuracy(
     )
 
 
-# ============================================================
+# =========================================================
 # SUPPORT / RESISTANCE
-# ============================================================
+# =========================================================
 
 def sr_filter(
     df,
@@ -1745,8 +1510,7 @@ def sr_filter(
             recent["low"].min()
         )
         if "low" in recent.columns
-        else
-        float(
+        else float(
             recent["close"].min()
         )
     )
@@ -1756,8 +1520,7 @@ def sr_filter(
             recent["high"].max()
         )
         if "high" in recent.columns
-        else
-        float(
+        else float(
             recent["close"].max()
         )
     )
@@ -1769,51 +1532,27 @@ def sr_filter(
     )
 
     near_support = (
-        abs(
-            price - support
-        )
+        abs(price - support)
         <= span * 0.08
     )
 
     near_resistance = (
-        abs(
-            resistance - price
-        )
+        abs(resistance - price)
         <= span * 0.08
     )
 
-    if (
-        near_support
-        and not near_resistance
-    ):
+    if near_support and not near_resistance:
+        return True, support, resistance
 
-        return (
-            True,
-            support,
-            resistance
-        )
+    if near_resistance and not near_support:
+        return False, support, resistance
 
-    if (
-        near_resistance
-        and not near_support
-    ):
-
-        return (
-            False,
-            support,
-            resistance
-        )
-
-    return (
-        True,
-        support,
-        resistance
-    )
+    return True, support, resistance
 
 
-# ============================================================
+# =========================================================
 # GEMINI ONLINE HELPER
-# ============================================================
+# =========================================================
 
 async def ask_gemini(
     asset,
@@ -1835,7 +1574,7 @@ async def ask_gemini(
     if not GEMINI_API_KEY:
 
         print(
-            "🟡 GEMINI: API KEY MISSING",
+            "🔴 GEMINI: API KEY MISSING",
             flush=True
         )
 
@@ -1859,56 +1598,49 @@ async def ask_gemini(
 
         for _, r in recent.iterrows():
 
-            rows.append(
-                {
-                    "open": round(
-                        float(
-                            r["open"]
-                        ),
-                        8
-                    ),
-                    "high": round(
-                        float(
-                            r["high"]
-                        ),
-                        8
-                    ),
-                    "low": round(
-                        float(
-                            r["low"]
-                        ),
-                        8
-                    ),
-                    "close": round(
-                        float(
-                            r["close"]
-                        ),
-                        8
-                    ),
-                }
-            )
+            rows.append({
+
+                "open": round(
+                    float(r["open"]),
+                    8
+                ),
+
+                "high": round(
+                    float(r["high"]),
+                    8
+                ),
+
+                "low": round(
+                    float(r["low"]),
+                    8
+                ),
+
+                "close": round(
+                    float(r["close"]),
+                    8
+                )
+            })
 
         technical_direction = (
+
             "BUY"
             if call_count > put_count
+
             else
             "SELL"
             if put_count > call_count
+
             else
             "WAIT"
         )
 
         prompt = f"""
-You are an ONLINE market-analysis helper.
+You are a conservative trading-analysis HELPER.
 
 You are NOT the final decision maker.
-Do NOT place trades.
-Do NOT invent market data.
+You must only give a SECOND OPINION.
 
-Analyze ONLY the live/current technical information supplied below.
-
-Your job is to independently evaluate whether the technical direction
-looks reasonable based on the supplied candles and indicators.
+Use ONLY the supplied current technical data.
 
 Asset: {asset}
 Timeframe: {timeframe}
@@ -1917,8 +1649,11 @@ Expiry: {expiry}
 Technical direction:
 {technical_direction}
 
-CALL confirmations: {call_count}/5
-PUT confirmations: {put_count}/5
+CALL confirmations:
+{call_count}/5
+
+PUT confirmations:
+{put_count}/5
 
 Trend:
 {trend_signal}
@@ -1947,11 +1682,15 @@ Resistance:
 Recent candles:
 {json.dumps(rows)}
 
-Return EXACTLY ONE WORD:
+Return exactly ONE word:
 
 BUY
 SELL
 WAIT
+
+Do not explain.
+Do not invent data.
+Do not use external information.
 """
 
         def call_ai():
@@ -1967,28 +1706,37 @@ WAIT
                 headers={
                     "Content-Type":
                         "application/json",
+
                     "x-goog-api-key":
-                        GEMINI_API_KEY,
+                        GEMINI_API_KEY
                 },
+
                 json={
                     "contents": [
                         {
                             "parts": [
                                 {
-                                    "text": prompt
+                                    "text":
+                                        prompt
                                 }
                             ]
                         }
                     ]
                 },
+
                 timeout=15
+            )
+
+            print(
+                f"🟢 GEMINI HTTP STATUS: "
+                f"{response.status_code}",
+                flush=True
             )
 
             if response.status_code != 200:
 
                 print(
-                    "🔴 GEMINI HTTP ERROR:",
-                    response.status_code,
+                    "🔴 GEMINI RESPONSE:",
                     response.text[:500],
                     flush=True
                 )
@@ -2000,8 +1748,15 @@ WAIT
             try:
 
                 answer = (
-                    data["candidates"][0]
-                    ["content"]["parts"][0]["text"]
+                    data[
+                        "candidates"
+                    ][0][
+                        "content"
+                    ][
+                        "parts"
+                    ][0][
+                        "text"
+                    ]
                 )
 
                 return answer
@@ -2009,7 +1764,7 @@ WAIT
             except Exception as e:
 
                 print(
-                    "🔴 GEMINI RESPONSE ERROR:",
+                    "🔴 GEMINI PARSE ERROR:",
                     repr(e),
                     flush=True
                 )
@@ -2020,19 +1775,22 @@ WAIT
             call_ai
         )
 
-        answer = str(
-            answer
-        ).strip().upper()
+        answer = (
+            str(answer)
+            .strip()
+            .upper()
+        )
+
+        print(
+            f"🤖 GEMINI ONLINE ANSWER: "
+            f"{answer}",
+            flush=True
+        )
 
         if re.search(
             r"\bBUY\b",
             answer
         ):
-
-            print(
-                "🟢 GEMINI ONLINE: BUY",
-                flush=True
-            )
 
             return "BUY"
 
@@ -2041,11 +1799,6 @@ WAIT
             answer
         ):
 
-            print(
-                "🔴 GEMINI ONLINE: SELL",
-                flush=True
-            )
-
             return "SELL"
 
         if re.search(
@@ -2053,18 +1806,7 @@ WAIT
             answer
         ):
 
-            print(
-                "🟡 GEMINI ONLINE: WAIT",
-                flush=True
-            )
-
             return "WAIT"
-
-        print(
-            "🟡 GEMINI UNKNOWN RESPONSE:",
-            answer,
-            flush=True
-        )
 
         return "OFFLINE"
 
@@ -2079,183 +1821,52 @@ WAIT
         return "OFFLINE"
 
 
-# ============================================================
-# FINAL DECISION ENGINE
-# ============================================================
+# =========================================================
+# FINAL DECISION
+# =========================================================
 
 def decide_final_signal(
     technical_direction,
-    call_count,
-    put_count,
+    technical_count,
     sr_pass,
     gemini
 ):
 
-    print(
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        flush=True
-    )
-
-    print(
-        f"📊 TECHNICAL: "
-        f"{technical_direction}",
-        flush=True
-    )
-
-    print(
-        f"🤖 GEMINI: "
-        f"{gemini}",
-        flush=True
-    )
+    # Technical must first be strong.
+    if technical_count < 4:
+        return "WAIT", "TECHNICAL WEAK"
 
     if not sr_pass:
+        return "WAIT", "S/R BLOCKED"
 
-        print(
-            "🛡 S/R: BLOCKED",
-            flush=True
-        )
-
-        print(
-            "⚪ AGREEMENT: BLOCKED",
-            flush=True
-        )
-
-        print(
-            "⚪ FINAL: WAIT",
-            flush=True
-        )
-
-        print(
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            flush=True
-        )
-
-        return "WAIT", "BLOCKED"
-
-    if technical_direction == "WAIT":
-
-        print(
-            "⚪ AGREEMENT: TECHNICAL WAIT",
-            flush=True
-        )
-
-        print(
-            "⚪ FINAL: WAIT",
-            flush=True
-        )
-
-        print(
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            flush=True
-        )
-
-        return "WAIT", "TECHNICAL WAIT"
-
+    # Gemini must be ONLINE and agree.
     if gemini == "OFFLINE":
-
-        print(
-            "🟡 AGREEMENT: GEMINI OFFLINE",
-            flush=True
-        )
-
-        print(
-            "⚪ FINAL: WAIT",
-            flush=True
-        )
-
-        print(
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            flush=True
-        )
-
         return "WAIT", "GEMINI OFFLINE"
 
     if gemini == "WAIT":
-
-        print(
-            "🟡 AGREEMENT: GEMINI WAIT",
-            flush=True
-        )
-
-        print(
-            "⚪ FINAL: WAIT",
-            flush=True
-        )
-
-        print(
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            flush=True
-        )
-
         return "WAIT", "GEMINI WAIT"
 
     if (
         technical_direction == "BUY"
-        and call_count >= 4
         and gemini == "BUY"
     ):
 
-        print(
-            "🟢 AGREEMENT: CONFIRMED BUY",
-            flush=True
-        )
-
-        print(
-            "🟢 FINAL: BUY",
-            flush=True
-        )
-
-        print(
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            flush=True
-        )
-
-        return "BUY", "CONFIRMED"
+        return "BUY", "TECHNICAL + GEMINI AGREED"
 
     if (
         technical_direction == "SELL"
-        and put_count >= 4
         and gemini == "SELL"
     ):
 
-        print(
-            "🔴 AGREEMENT: CONFIRMED SELL",
-            flush=True
-        )
+        return "SELL", "TECHNICAL + GEMINI AGREED"
 
-        print(
-            "🔴 FINAL: SELL",
-            flush=True
-        )
-
-        print(
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            flush=True
-        )
-
-        return "SELL", "CONFIRMED"
-
-    print(
-        "⚠️ AGREEMENT: CONFLICT",
-        flush=True
-    )
-
-    print(
-        "⚪ FINAL: WAIT",
-        flush=True
-    )
-
-    print(
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        flush=True
-    )
-
-    return "WAIT", "CONFLICT"
+    # Conflict = WAIT.
+    return "WAIT", "TECHNICAL/GEMINI CONFLICT"
 
 
-# ============================================================
+# =========================================================
 # SIGNAL PANEL
-# ============================================================
+# =========================================================
 
 def build_signal_panel(
     asset,
@@ -2279,28 +1890,71 @@ def build_signal_panel(
     support,
     resistance,
     gemini,
-    agreement
+    decision_reason
 ):
 
     final_icon = (
+
         "🟢"
         if final_signal == "BUY"
+
         else
         "🔴"
         if final_signal == "SELL"
+
         else
         "⚪"
     )
 
+    technical_direction = (
+
+        "BUY"
+        if call_count > put_count
+
+        else
+        "SELL"
+        if put_count > call_count
+
+        else
+        "WAIT"
+    )
+
     ai_icon = (
+
         "🟢"
         if gemini == "BUY"
+
         else
         "🔴"
         if gemini == "SELL"
+
         else
         "🟡"
+        if gemini == "OFFLINE"
+
+        else
+        "⚪"
     )
+
+    if gemini == "OFFLINE":
+
+        agreement = "UNAVAILABLE ❌"
+
+    elif gemini == technical_direction:
+
+        agreement = "AGREEMENT ✅"
+
+    elif gemini == "WAIT":
+
+        agreement = "GEMINI WAIT ⚪"
+
+    elif technical_direction == "WAIT":
+
+        agreement = "TECHNICAL WAIT ⚪"
+
+    else:
+
+        agreement = "CONFLICT ⚠️"
 
     sr_text = (
         "PASS ✅"
@@ -2309,105 +1963,119 @@ def build_signal_panel(
         "BLOCKED ❌"
     )
 
-    technical_direction = (
-        "BUY"
-        if call_count > put_count
-        else
-        "SELL"
-        if put_count > call_count
-        else
-        "WAIT"
-    )
-
     return (
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "🤖 NAASIRFX AI SIGNAL — LIVE DATA\n"
+        "🤖 NAASIRFX AI SIGNAL — LIVE\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
 
         f"💱 {asset}\n\n"
 
-        f"📡 Data source: "
-        f"{LAST_SIGNAL_DATA_SOURCE}\n\n"
-
         f"{final_icon} FINAL: "
         f"{final_signal}\n\n"
 
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "📊 DECISION ENGINE\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📡 Data: "
+        f"{LAST_SIGNAL_DATA_SOURCE}\n"
 
         f"📊 Technical: "
-        f"{technical_direction}\n"
+        f"{technical}\n"
 
-        f"🤖 Gemini: "
-        f"{gemini} {ai_icon}\n"
+        f"🎯 Technical strength: "
+        f"{accuracy}%\n\n"
 
-        f"🤝 Agreement: "
-        f"{agreement}\n\n"
+        f"⏱ Timeframe: "
+        f"{timeframe}\n"
+
+        f"⌛ Expiry: "
+        f"{expiry}\n\n"
 
         "━━━━━━━━━━━━━━━━━━━━\n"
         "📊 TECHNICAL ANALYSIS\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
 
-        f"📈 Trend:       {trend}\n"
-        f"📊 RSI:         {rsi_signal}\n"
-        f"🕯 Current:     {current_signal}\n"
-        f"🕯 Previous:    {previous_signal}\n"
-        f"⏫ Higher TF:   {higher_signal}\n\n"
+        f"📈 Trend: "
+        f"{trend}\n"
 
-        f"🟢 CALL: {call_count}/5\n"
-        f"🔴 PUT: {put_count}/5\n\n"
+        f"📊 RSI: "
+        f"{rsi_signal}\n"
 
-        f"📊 Technical strength: "
-        f"{technical}\n"
+        f"🕯 Current: "
+        f"{current_signal}\n"
 
-        f"🎯 Technical score: "
-        f"{accuracy}%\n\n"
+        f"🕯 Previous: "
+        f"{previous_signal}\n"
+
+        f"⏫ Higher TF: "
+        f"{higher_signal}\n\n"
+
+        f"🟢 CALL: "
+        f"{call_count}/5\n"
+
+        f"🔴 PUT: "
+        f"{put_count}/5\n\n"
 
         "━━━━━━━━━━━━━━━━━━━━\n"
         "📐 MARKET DATA\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
 
-        f"💰 Price: {price:.8f}\n"
-        f"📈 MA10:  {ma10:.8f}\n"
-        f"📉 MA50:  {ma50:.8f}\n"
-        f"📊 RSI:   {rsi:.2f}\n\n"
+        f"💰 Price: "
+        f"{price:.8f}\n"
 
-        f"🛡 S/R: {sr_text}\n\n"
+        f"📈 MA10: "
+        f"{ma10:.8f}\n"
+
+        f"📉 MA50: "
+        f"{ma50:.8f}\n"
+
+        f"📊 RSI: "
+        f"{rsi:.2f}\n\n"
+
+        f"🛡 S/R: "
+        f"{sr_text}\n"
+
+        f"📍 Support: "
+        f"{support:.8f}\n"
+
+        f"📍 Resistance: "
+        f"{resistance:.8f}\n\n"
 
         "━━━━━━━━━━━━━━━━━━━━\n"
         "🤖 GEMINI ONLINE HELPER\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
 
-        f"AI response: {gemini}\n\n"
+        f"AI: "
+        f"{gemini} "
+        f"{ai_icon}\n\n"
 
-        "ℹ️ Gemini waa helper/confirmation.\n"
-        "ℹ️ Gemini kaligiis ma go'aamiyo signal-ka.\n\n"
+        f"📊 Technical: "
+        f"{technical_direction}\n"
+
+        f"🤖 Gemini: "
+        f"{gemini}\n"
+
+        f"🤝 Agreement: "
+        f"{agreement}\n\n"
 
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "🎯 FINAL SIGNAL\n"
+        "🧠 DECISION\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
 
-        f"{final_icon} {final_signal}\n\n"
+        f"📌 {decision_reason}\n\n"
 
-        (
-            "🟢 Technical + Gemini way isku raaceen.\n"
-            if agreement == "CONFIRMED"
-            else
-            "⚠️ Technical iyo Gemini way is khilaafeen.\n"
-            if agreement == "CONFLICT"
-            else
-            "⚪ Signal lama xaqiijin.\n"
-        )
+        f"{final_icon} FINAL: "
+        f"{final_signal}\n\n"
 
-        "\n⚠️ SIGNAL ONLY\n"
+        "ℹ️ Gemini waa helper/second opinion.\n"
+        "Technical iyo Gemini haddii ay isku raaci waayaan,\n"
+        "bot-ku WAIT ayuu dooranayaa.\n\n"
+
+        "⚠️ SIGNAL ONLY\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
 
 
-# ============================================================
+# =========================================================
 # GET SIGNAL
-# ============================================================
+# =========================================================
 
 async def get_signal(
     asset_code,
@@ -2423,9 +2091,9 @@ async def get_signal(
 
         client = await connect_client()
 
-        # ====================================================
-        # MAIN TIMEFRAME
-        # ====================================================
+        # =================================================
+        # MAIN LIVE DATA
+        # =================================================
 
         df = await get_candles(
             client,
@@ -2443,23 +2111,25 @@ async def get_signal(
                 "━━━━━━━━━━━━━━━━━━━━\n"
                 "🤖 NAASIRFX AI SIGNAL\n"
                 "━━━━━━━━━━━━━━━━━━━━\n\n"
+
                 f"💱 {display_asset}\n\n"
+
                 "⚪ FINAL: WAIT\n\n"
+
                 "❌ DATA LAMA HELIN\n\n"
-                "Candles ku filan lama helin.\n\n"
+
+                "Pocket Option live candles "
+                "ku filan lama helin.\n\n"
+
                 f"⏱ Timeframe: "
                 f"{timeframe_name}\n"
+
                 f"⌛ Expiry: "
                 f"{expiry_name}\n\n"
+
                 "⚠️ SIGNAL ONLY\n"
                 "━━━━━━━━━━━━━━━━━━━━"
             )
-
-        # ====================================================
-        # SORT
-        # ====================================================
-
-        df = df.copy()
 
         if "_ts" in df.columns:
 
@@ -2469,9 +2139,9 @@ async def get_signal(
                 .reset_index(drop=True)
             )
 
-        # ====================================================
+        # =================================================
         # INDICATORS
-        # ====================================================
+        # =================================================
 
         df["MA10"] = (
             df["close"]
@@ -2509,9 +2179,9 @@ async def get_signal(
             latest["RSI"]
         )
 
-        # ====================================================
+        # =================================================
         # TREND
-        # ====================================================
+        # =================================================
 
         if (
             price > ma10
@@ -2531,19 +2201,15 @@ async def get_signal(
 
             trend = "NEUTRAL ⚪"
 
-        # ====================================================
+        # =================================================
         # RSI
-        # ====================================================
+        # =================================================
 
-        if (
-            50 <= rsi <= 70
-        ):
+        if 50 <= rsi <= 70:
 
             rsi_signal = "CALL 🟢"
 
-        elif (
-            30 <= rsi < 50
-        ):
+        elif 30 <= rsi < 50:
 
             rsi_signal = "PUT 🔴"
 
@@ -2551,24 +2217,24 @@ async def get_signal(
 
             rsi_signal = "NEUTRAL ⚪"
 
-        # ====================================================
+        # =================================================
         # CURRENT CANDLE
-        # ====================================================
-
-        current_close = float(
-            latest["close"]
-        )
+        # =================================================
 
         current_open = float(
             latest["open"]
         )
 
-        previous_close = float(
-            previous["close"]
+        current_close = float(
+            latest["close"]
         )
 
         previous_open = float(
             previous["open"]
+        )
+
+        previous_close = float(
+            previous["close"]
         )
 
         if current_close > current_open:
@@ -2595,9 +2261,9 @@ async def get_signal(
 
             previous_signal = "NEUTRAL ⚪"
 
-        # ====================================================
+        # =================================================
         # HIGHER TIMEFRAME
-        # ====================================================
+        # =================================================
 
         higher_tf = HIGHER_TIMEFRAME[
             timeframe
@@ -2629,7 +2295,9 @@ async def get_signal(
                     higher_df = (
                         higher_df
                         .sort_values("_ts")
-                        .reset_index(drop=True)
+                        .reset_index(
+                            drop=True
+                        )
                     )
 
                 h = higher_df.iloc[-1]
@@ -2654,9 +2322,9 @@ async def get_signal(
 
                     higher_signal = "NEUTRAL ⚪"
 
-        # ====================================================
-        # CONFIRMATIONS
-        # ====================================================
+        # =================================================
+        # TECHNICAL CONFIRMATIONS
+        # =================================================
 
         call_count = 0
         put_count = 0
@@ -2670,50 +2338,54 @@ async def get_signal(
         ):
 
             if value.startswith("CALL"):
+
                 call_count += 1
 
             elif value.startswith("PUT"):
+
                 put_count += 1
 
-        technical = (
-            f"CALL {call_count}/5"
-            if call_count > put_count
-            else
-            f"PUT {put_count}/5"
-            if put_count > call_count
-            else
-            "WAIT"
-        )
+        if call_count > put_count:
 
-        technical_direction = (
-            "BUY"
-            if call_count > put_count
-            else
-            "SELL"
-            if put_count > call_count
-            else
-            "WAIT"
-        )
+            technical = (
+                f"CALL "
+                f"{call_count}/5"
+            )
+
+            technical_direction = "BUY"
+
+        elif put_count > call_count:
+
+            technical = (
+                f"PUT "
+                f"{put_count}/5"
+            )
+
+            technical_direction = "SELL"
+
+        else:
+
+            technical = "WAIT"
+
+            technical_direction = "WAIT"
 
         accuracy = calculate_accuracy(
             call_count,
             put_count
         )
 
-        # ====================================================
+        # =================================================
         # SUPPORT / RESISTANCE
-        # ====================================================
+        # =================================================
 
-        sr_pass, support, resistance = (
-            sr_filter(
-                df,
-                price
-            )
+        sr_pass, support, resistance = sr_filter(
+            df,
+            price
         )
 
-        # ====================================================
+        # =================================================
         # GEMINI ONLINE HELPER
-        # ====================================================
+        # =================================================
 
         gemini = await ask_gemini(
             display_asset,
@@ -2732,23 +2404,61 @@ async def get_signal(
             price
         )
 
-        # ====================================================
+        # =================================================
         # FINAL DECISION
-        # ====================================================
+        # =================================================
 
-        final_signal, agreement = (
+        final_signal, decision_reason = (
             decide_final_signal(
                 technical_direction,
-                call_count,
-                put_count,
+                max(
+                    call_count,
+                    put_count
+                ),
                 sr_pass,
                 gemini
             )
         )
 
-        # ====================================================
-        # PANEL
-        # ====================================================
+        print(
+            "━━━━━━━━━━━━━━━━━━━━",
+            flush=True
+        )
+
+        print(
+            f"📡 DATA: "
+            f"{LAST_SIGNAL_DATA_SOURCE}",
+            flush=True
+        )
+
+        print(
+            f"📊 TECHNICAL: "
+            f"{technical_direction}",
+            flush=True
+        )
+
+        print(
+            f"🤖 GEMINI: "
+            f"{gemini}",
+            flush=True
+        )
+
+        print(
+            f"🤝 DECISION: "
+            f"{decision_reason}",
+            flush=True
+        )
+
+        print(
+            f"🎯 FINAL: "
+            f"{final_signal}",
+            flush=True
+        )
+
+        print(
+            "━━━━━━━━━━━━━━━━━━━━",
+            flush=True
+        )
 
         return build_signal_panel(
             display_asset,
@@ -2772,7 +2482,7 @@ async def get_signal(
             support,
             resistance,
             gemini,
-            agreement
+            decision_reason
         )
 
     except Exception as e:
@@ -2787,14 +2497,21 @@ async def get_signal(
             "━━━━━━━━━━━━━━━━━━━━\n"
             "🤖 NAASIRFX AI SIGNAL\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
+
             f"💱 {display_asset}\n\n"
+
             "⚪ FINAL: WAIT\n\n"
+
             "❌ SIGNAL ERROR\n\n"
+
             f"{type(e).__name__}: {e}\n\n"
+
             f"⏱ Timeframe: "
             f"{timeframe_name}\n"
+
             f"⌛ Expiry: "
             f"{expiry_name}\n\n"
+
             "⚠️ SIGNAL ONLY\n"
             "━━━━━━━━━━━━━━━━━━━━"
         )
@@ -2809,9 +2526,9 @@ async def get_signal(
                 pass
 
 
-# ============================================================
+# =========================================================
 # TELEGRAM START
-# ============================================================
+# =========================================================
 
 async def start(
     update: Update,
@@ -2826,6 +2543,10 @@ async def start(
 
     await update.message.reply_text(
         "👋 Soo dhawoow NAASIRFX AI SIGNAL\n\n"
+        "📡 Pocket Option: LIVE/CURRENT\n"
+        "📊 Technical Analysis: ON\n"
+        "🤖 Gemini: ONLINE HELPER\n"
+        "🤝 Agreement filter: ON\n\n"
         "Dooro waxa aad rabto:",
         reply_markup=ReplyKeyboardMarkup(
             keyboard,
@@ -2834,13 +2555,11 @@ async def start(
     )
 
 
-# ============================================================
+# =========================================================
 # PAIR CATEGORIES
-# ============================================================
+# =========================================================
 
-async def show_pair_categories(
-    update
-):
+async def show_pair_categories(update):
 
     keyboard = [
         ["💱 Forex", "💱 Forex OTC"],
@@ -2857,10 +2576,6 @@ async def show_pair_categories(
         )
     )
 
-
-# ============================================================
-# PAIRS
-# ============================================================
 
 async def show_pairs(
     update,
@@ -2891,13 +2606,11 @@ async def show_pairs(
     )
 
 
-# ============================================================
-# TIMEFRAMES
-# ============================================================
+# =========================================================
+# TIMEFRAME
+# =========================================================
 
-async def show_timeframes(
-    update
-):
+async def show_timeframes(update):
 
     rows = button_rows(
         list(TIMEFRAMES.keys()),
@@ -2918,13 +2631,11 @@ async def show_timeframes(
     )
 
 
-# ============================================================
-# EXPIRIES
-# ============================================================
+# =========================================================
+# EXPIRY
+# =========================================================
 
-async def show_expiries(
-    update
-):
+async def show_expiries(update):
 
     rows = button_rows(
         list(EXPIRIES.keys()),
@@ -2945,17 +2656,13 @@ async def show_expiries(
     )
 
 
-# ============================================================
+# =========================================================
 # SEND SIGNAL
-# ============================================================
+# =========================================================
 
-async def send_pair_signal(
-    update
-):
+async def send_pair_signal(update):
 
-    user_id = (
-        update.effective_user.id
-    )
+    user_id = update.effective_user.id
 
     category = user_category.get(
         user_id
@@ -2969,31 +2676,23 @@ async def send_pair_signal(
 
         return
 
-    asset_name = (
-        update.message.text
-    )
+    asset_name = update.message.text
 
-    asset_code = (
-        CATEGORIES[
-            category
-        ].get(
-            asset_name
-        )
+    asset_code = CATEGORIES[
+        category
+    ].get(
+        asset_name
     )
 
     if not asset_code:
         return
 
-    timeframe_name = (
-        user_timeframe.get(
-            user_id
-        )
+    timeframe_name = user_timeframe.get(
+        user_id
     )
 
-    expiry_name = (
-        user_expiry.get(
-            user_id
-        )
+    expiry_name = user_expiry.get(
+        user_id
     )
 
     if not timeframe_name:
@@ -3013,8 +2712,10 @@ async def send_pair_signal(
         return
 
     await update.message.reply_text(
-        "⏳ Live data waa la baarayaa...\n"
-        "📡 Pocket Option → Technical → Gemini..."
+        "⏳ Live data waa la keenayaa...\n"
+        "📊 Technical analysis...\n"
+        "🤖 Gemini ONLINE helper...\n"
+        "🤝 Agreement ayaa la hubinayaa..."
     )
 
     signal = await get_signal(
@@ -3032,9 +2733,9 @@ async def send_pair_signal(
     )
 
 
-# ============================================================
+# =========================================================
 # MESSAGE HANDLER
-# ============================================================
+# =========================================================
 
 async def message_handler(
     update: Update,
@@ -3077,7 +2778,8 @@ async def message_handler(
     if text == "ℹ️ STATUS":
 
         await update.message.reply_text(
-            "🟢 NAASIRFX AI SIGNAL\n\n"
+
+            "🟢 NAASIRFX STATUS\n\n"
 
             "🟢 Telegram: RUNNING\n"
 
@@ -3087,16 +2789,19 @@ async def message_handler(
             f"🤖 Gemini API: "
             f"{'FOUND' if GEMINI_API_KEY else 'MISSING'}\n"
 
-            f"🧠 Gemini mode: "
-            f"ONLINE HELPER\n"
+            "📡 Signal data: "
+            "LIVE/CURRENT\n"
 
-            "📡 Signal mode: "
-            "LIVE / CURRENT DATA\n"
+            "📊 Technical: ON\n"
 
-            "🤝 Final decision: "
-            "TECHNICAL + GEMINI AGREEMENT\n"
+            "🤖 Gemini helper: ON\n"
 
-            "⚠️ Signal only"
+            "🤝 Agreement filter: ON\n\n"
+
+            "BUY/SELL waxaa la bixinayaa "
+            "marka Technical + Gemini ay isku raacaan.\n"
+
+            "Haddii ay is khilaafaan → WAIT."
         )
 
         return
@@ -3180,9 +2885,9 @@ async def message_handler(
     )
 
 
-# ============================================================
+# =========================================================
 # RENDER HEALTH SERVER
-# ============================================================
+# =========================================================
 
 class HealthHandler(
     BaseHTTPRequestHandler
@@ -3240,9 +2945,9 @@ def run_health_server():
     server.serve_forever()
 
 
-# ============================================================
+# =========================================================
 # TELEGRAM POST INIT
-# ============================================================
+# =========================================================
 
 async def telegram_post_init(
     application
@@ -3268,11 +2973,53 @@ async def telegram_post_init(
         )
 
 
-# ============================================================
+# =========================================================
 # MAIN
-# ============================================================
+# =========================================================
 
 def main():
+
+    print(
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        flush=True
+    )
+
+    print(
+        "🤖 NAASIRFX STARTING...",
+        flush=True
+    )
+
+    print(
+        f"📡 PO SSID: "
+        f"{'FOUND' if PO_SSID else 'MISSING'}",
+        flush=True
+    )
+
+    print(
+        f"🤖 GEMINI API: "
+        f"{'FOUND' if GEMINI_API_KEY else 'MISSING'}",
+        flush=True
+    )
+
+    print(
+        "📊 Technical: ON",
+        flush=True
+    )
+
+    print(
+        "🤖 Gemini: ONLINE HELPER",
+        flush=True
+    )
+
+    print(
+        "🤝 Agreement filter: ON",
+        flush=True
+    )
+
+    print(
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        flush=True
+    )
 
     if not TOKEN:
 
@@ -3294,13 +3041,6 @@ def main():
 
         print(
             "⚠️ GEMINI_API_KEY lama helin.",
-            flush=True
-        )
-
-    else:
-
-        print(
-            "🟢 GEMINI API KEY FOUND",
             flush=True
         )
 
@@ -3338,30 +3078,15 @@ def main():
         flush=True
     )
 
-    print(
-        "📡 MODE: POCKET OPTION LIVE/CURRENT DATA",
-        flush=True
-    )
-
-    print(
-        "🤖 GEMINI: ONLINE HELPER",
-        flush=True
-    )
-
-    print(
-        "🤝 FINAL: TECHNICAL + GEMINI AGREEMENT",
-        flush=True
-    )
-
     app.run_polling(
         drop_pending_updates=True,
         bootstrap_retries=0
     )
 
 
-# ============================================================
-# START
-# ============================================================
+# =========================================================
+# RUN
+# =========================================================
 
 if __name__ == "__main__":
     main()
