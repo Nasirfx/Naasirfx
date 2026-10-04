@@ -11,6 +11,13 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from pocketoptionapi_async import AsyncPocketOptionClient
 
+# Register CNY OTC symbols in the async client's local asset registry.
+# Some package versions omit these OTC symbols from their static ASSETS list.
+try:
+    from pocketoptionapi_async.constants import ASSETS as PO_ASSETS
+except Exception:
+    PO_ASSETS = None
+
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PO_SSID = os.getenv("POCKET_OPTION_SSID") or os.getenv("PO_SSID")
@@ -255,6 +262,34 @@ CNY_OTC_ASSETS = {
     "SARCNY_otc": 540
 }
 
+CNY_OTC_SYMBOLS = tuple(CNY_OTC_ASSETS.keys())
+
+
+def register_cny_otc_assets():
+    """Register CNY OTC symbols with the installed client."""
+    if PO_ASSETS is None:
+        print("🟡 POCKET OPTION ASSETS registry not available.", flush=True)
+        return
+
+    added = []
+    for symbol in CNY_OTC_SYMBOLS:
+        if symbol not in PO_ASSETS:
+            PO_ASSETS[symbol] = {
+                "name": symbol,
+                "symbol": symbol
+            }
+            added.append(symbol)
+
+    if added:
+        print(
+            f"🟢 REGISTERED CNY OTC ASSETS: {', '.join(added)}",
+            flush=True
+        )
+
+
+register_cny_otc_assets()
+
+
 user_category = {}
 user_timeframe = {}
 user_expiry = {}
@@ -335,76 +370,6 @@ def get_asset_variants(asset_code):
         add(original.replace("/", "") + "_otc")
 
     return variants
-
-
-async def discover_cny_asset_variants(client, asset_code):
-    """Discover the real Pocket Option symbol for CNY OTC pairs.
-
-    CNY OTC symbols can change/appear under different symbol formats.
-    Do not depend only on hard-coded asset IDs; inspect get_assets() and
-    match the currency pair by its two currency codes.
-    """
-    original = str(asset_code).strip().upper()
-    base = original.replace("_OTC", "").replace("/", "")
-
-    if len(base) != 6 or not base.endswith("CNY"):
-        return []
-
-    wanted = base[:3] + "CNY"
-    method = getattr(client, "get_assets", None)
-    if not callable(method):
-        return []
-
-    try:
-        assets = await asyncio.wait_for(method(), timeout=10)
-    except Exception as e:
-        print(f"🟡 CNY DYNAMIC DISCOVERY ERROR {asset_code}: {e}", flush=True)
-        return []
-
-    found = []
-
-    def add(value):
-        if value is None:
-            return
-        value = str(value).strip()
-        if value and value not in found:
-            found.append(value)
-
-    name_keys = ("symbol", "asset", "name", "ticker", "code", "pair")
-
-    def inspect(item):
-        if isinstance(item, dict):
-            values = [item.get(k) for k in name_keys]
-        else:
-            values = []
-            for k in name_keys:
-                try:
-                    values.append(getattr(item, k, None))
-                except Exception:
-                    values.append(None)
-
-        for value in values:
-            if value is None:
-                continue
-            text = str(value).strip()
-            compact = re.sub(r"[^A-Z]", "", text.upper())
-            if compact.startswith(wanted) and ("OTC" in text.upper() or "_OTC" in text.upper()):
-                add(text)
-
-    if isinstance(assets, dict):
-        for key, value in assets.items():
-            inspect(key)
-            inspect(value)
-    elif isinstance(assets, (list, tuple, set)):
-        for item in assets:
-            inspect(item)
-    else:
-        inspect(assets)
-
-    if found:
-        print(f"🟢 CNY DYNAMIC DISCOVERY {asset_code}: {found}", flush=True)
-
-    return found
 
 
 async def discover_asset_variants_by_id(client, asset_code):
@@ -907,35 +872,41 @@ async def try_realtime_candles(client, variants, timeframe):
 
 async def get_candles(client, asset_code, timeframe):
 
-    variants = get_asset_variants(
-        asset_code
-    )
+    variants = get_asset_variants(asset_code)
 
-    # CNY OTC: first discover the live symbol from Pocket Option.
-    # Hard-coded IDs are retained only as a fallback.
-    discovered = []
+    # CNY OTC: use the exact Pocket Option symbol first.
+    # The async client expects symbols such as AEDCNY_otc.
+    if str(asset_code).strip().upper().endswith("CNY_OTC"):
+        exact = str(asset_code).strip()
+        variants = [exact] + [v for v in variants if v != exact]
 
-    if str(asset_code).upper().replace("/", "").endswith("CNY_OTC"):
-        discovered = await discover_cny_asset_variants(
+        try:
+            discovered = await discover_cny_asset_variants(
+                client,
+                asset_code
+            )
+        except Exception:
+            discovered = []
+
+        for item in discovered:
+            if item not in variants:
+                variants.append(item)
+    else:
+        id_discovered = await discover_asset_variants_by_id(
             client,
             asset_code
         )
+        for item in id_discovered:
+            if item not in variants:
+                variants.append(item)
 
-    id_discovered = await discover_asset_variants_by_id(
-        client,
-        asset_code
-    )
+    if str(asset_code).strip().upper().endswith("CNY_OTC"):
+        print(
+            f"🔎 CNY CANDLE VARIANTS: {variants}",
+            flush=True
+        )
 
-    for item in id_discovered:
-        if item not in discovered:
-            discovered.append(item)
-
-    for item in discovered:
-
-        if item not in variants:
-            variants.append(item)
-
-     # ---------------------------------------------------------
+    # ---------------------------------------------------------
     # 1. REALTIME/LIVE CANDLE FIRST
     # ---------------------------------------------------------
 
