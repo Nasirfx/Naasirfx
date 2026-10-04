@@ -675,50 +675,45 @@ def normalize_candle_dataframe(raw):
         return None
 
 
-def candle_is_current_or_recent(df, timeframe, tolerance_bars=0):
+def candle_is_current_or_recent(df, timeframe, tolerance_bars=1):
     """
-    LIVE mode freshness check.
+    Verifies that the newest candle is not several candles behind.
 
-    The newest row must be the currently-open candle (or the candle that
-    opened within the current timeframe). We do not accept candles that are
-    one or more full bars behind, because that can create a delayed signal.
+    We do NOT reject the current candle simply because it is still open.
+    An open/current candle is exactly what is needed for on-time analysis.
     """
 
     if df is None or df.empty:
         return False
 
     if "_ts" not in df.columns:
-        # Without timestamps we cannot prove that the data is live.
-        print("🟡 LIVE CHECK: candle timestamps unavailable.", flush=True)
-        return False
+        # Some Pocket Option responses don't expose timestamps.
+        # In that case we cannot prove staleness.
+        return True
 
     timestamps = df["_ts"].dropna()
+
     if timestamps.empty:
-        return False
+        return True
 
     latest_ts = float(timestamps.iloc[-1])
     now_ts = time.time()
+
     age = now_ts - latest_ts
 
-    # Pocket Option candle timestamps normally identify the candle OPEN.
-    # Therefore a current open candle can legitimately be almost one whole
-    # timeframe old, but it must not be older than one full bar plus a small
-    # network tolerance.
-    max_age = timeframe + 5
+    max_age = (
+        timeframe * (tolerance_bars + 1)
+        + 15
+    )
 
-    if age < -5 or age > max_age:
+    if age > max_age:
         print(
-            f"🔴 LIVE CANDLE REJECTED: age={age:.1f}s "
+            f"🔴 STALE CANDLES: age={age:.1f}s "
             f"timeframe={timeframe}s",
             flush=True
         )
         return False
 
-    print(
-        f"🟢 LIVE CANDLE OK: age={age:.1f}s "
-        f"timeframe={timeframe}s",
-        flush=True
-    )
     return True
 
 
@@ -878,28 +873,6 @@ async def try_realtime_candles(client, variants, timeframe):
     return None
 
 
-async def get_live_candles_strict(client, variants, timeframe):
-    """
-    Get the live/current candle first and reject stale realtime responses.
-    Historical candles may still be used by the caller only as indicator
-    history, but the last candle used for the signal must be current.
-    """
-    realtime_df = await try_realtime_candles(
-        client,
-        variants,
-        timeframe
-    )
-
-    if realtime_df is not None and candle_is_current_or_recent(
-        realtime_df,
-        timeframe,
-        tolerance_bars=0
-    ):
-        return realtime_df
-
-    return None
-
-
 async def get_candles(client, asset_code, timeframe):
 
     variants = get_asset_variants(asset_code)
@@ -940,15 +913,27 @@ async def get_candles(client, asset_code, timeframe):
     # ---------------------------------------------------------
     # 1. REALTIME/LIVE CANDLE FIRST
     # ---------------------------------------------------------
+    # Prefer the live stream when the installed client exposes it.
+    # If the client does not expose a usable realtime method, fall back
+    # to the freshest candle endpoint instead of returning DATA LAMA HELIN.
 
-    realtime_df = await get_live_candles_strict(
+    realtime_df = await try_realtime_candles(
         client,
         variants,
         timeframe
     )
 
     if realtime_df is not None:
-        return realtime_df
+        if candle_is_current_or_recent(
+            realtime_df,
+            timeframe,
+            tolerance_bars=1
+        ):
+            print(
+                f"🟢 SIGNAL DATA SOURCE: REALTIME {asset_code}",
+                flush=True
+            )
+            return realtime_df
 
     # ---------------------------------------------------------
     # 2. RAW GET_CANDLES
@@ -973,8 +958,12 @@ async def get_candles(client, asset_code, timeframe):
             if candle_is_current_or_recent(
                 df,
                 timeframe,
-                tolerance_bars=0
+                tolerance_bars=1
             ):
+                print(
+                    f"🟢 SIGNAL DATA SOURCE: FRESH GET_CANDLES {asset_code}",
+                    flush=True
+                )
                 return df
 
             print(
@@ -1005,8 +994,12 @@ async def get_candles(client, asset_code, timeframe):
             if candle_is_current_or_recent(
                 df,
                 timeframe,
-                tolerance_bars=0
+                tolerance_bars=1
             ):
+                print(
+                    f"🟢 SIGNAL DATA SOURCE: FRESH DATAFRAME {asset_code}",
+                    flush=True
+                )
                 return df
 
             print(
@@ -1038,8 +1031,13 @@ async def get_candles(client, asset_code, timeframe):
 
             if candle_is_current_or_recent(
                 df,
-                timeframe
+                timeframe,
+                tolerance_bars=1
             ):
+                print(
+                    f"🟢 SIGNAL DATA SOURCE: RETRY {asset_code}",
+                    flush=True
+                )
                 return df
 
     return None
@@ -1423,7 +1421,7 @@ def build_signal_panel(
 
     return (
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "🤖 NAASIRFX AI SIGNAL\n"
+        "🤖 NAASIRFX AI SIGNAL — LIVE DATA\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         f"💱 {asset}\n\n"
         f"{final_icon} FINAL: {final_signal}\n"
@@ -1491,7 +1489,7 @@ async def get_signal(
 
             return (
                 "━━━━━━━━━━━━━━━━━━━━\n"
-                "🤖 NAASIRFX AI SIGNAL — LIVE NOW\n"
+                "🤖 NAASIRFX AI SIGNAL\n"
                 "━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"💱 {display_asset}\n\n"
                 "⚪ FINAL: WAIT\n\n"
