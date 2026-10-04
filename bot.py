@@ -1196,7 +1196,7 @@ async def ask_gemini(
 ):
 
     if not GEMINI_API_KEY:
-        return "ERROR"
+        return "OFFLINE"
 
     try:
 
@@ -1295,7 +1295,7 @@ WAIT
                         }
                     ]
                 },
-                timeout=30
+                timeout=10
             )
 
             if response.status_code != 200:
@@ -1306,7 +1306,7 @@ WAIT
                     flush=True
                 )
 
-                return ""
+                return "OFFLINE"
 
             data = response.json()
 
@@ -1317,7 +1317,7 @@ WAIT
                 )
 
             except Exception:
-                return ""
+                return "OFFLINE"
 
         answer = (
             await asyncio.to_thread(
@@ -1343,7 +1343,7 @@ WAIT
         ):
             return "WAIT"
 
-        return "ERROR"
+        return "OFFLINE"
 
     except Exception as e:
 
@@ -1353,7 +1353,7 @@ WAIT
             flush=True
         )
 
-        return "ERROR"
+        return "OFFLINE"
 
 
 def direction_text(value):
@@ -1411,8 +1411,27 @@ def build_signal_panel(
         if gemini == "BUY"
         else "🔴"
         if gemini == "SELL"
+        else "🟡"
+        if gemini == "OFFLINE"
         else "⚪"
     )
+
+    technical_direction = (
+        "BUY"
+        if call_count > put_count
+        else "SELL"
+        if put_count > call_count
+        else "WAIT"
+    )
+
+    if gemini == "OFFLINE":
+        agreement = "UNAVAILABLE 🟡"
+    elif gemini == technical_direction:
+        agreement = "CONFIRMED ✅"
+    elif gemini == "WAIT" or technical_direction == "WAIT":
+        agreement = "NEUTRAL ⚪"
+    else:
+        agreement = "CONFLICT ⚠️"
 
     reason = ""
 
@@ -1459,9 +1478,16 @@ def build_signal_panel(
         f"📊 RSI:   {rsi:.2f}\n\n"
         f"🛡 S/R: {sr_text}\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "🤖 GEMINI AI\n"
+        "🤖 GEMINI AI — HELPER\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         f"AI: {gemini} {ai_icon}\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "🤝 TECHNICAL + GEMINI\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 Technical: {technical_direction}\n"
+        f"🤖 Gemini:    {gemini}\n"
+        f"🔎 Agreement: {agreement}\n\n"
+        "ℹ️ Gemini waa caawiye; ma beddelayo Technical signal-ka.\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "🎯 FINAL SIGNAL\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
