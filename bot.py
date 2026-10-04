@@ -337,6 +337,76 @@ def get_asset_variants(asset_code):
     return variants
 
 
+async def discover_cny_asset_variants(client, asset_code):
+    """Discover the real Pocket Option symbol for CNY OTC pairs.
+
+    CNY OTC symbols can change/appear under different symbol formats.
+    Do not depend only on hard-coded asset IDs; inspect get_assets() and
+    match the currency pair by its two currency codes.
+    """
+    original = str(asset_code).strip().upper()
+    base = original.replace("_OTC", "").replace("/", "")
+
+    if len(base) != 6 or not base.endswith("CNY"):
+        return []
+
+    wanted = base[:3] + "CNY"
+    method = getattr(client, "get_assets", None)
+    if not callable(method):
+        return []
+
+    try:
+        assets = await asyncio.wait_for(method(), timeout=10)
+    except Exception as e:
+        print(f"🟡 CNY DYNAMIC DISCOVERY ERROR {asset_code}: {e}", flush=True)
+        return []
+
+    found = []
+
+    def add(value):
+        if value is None:
+            return
+        value = str(value).strip()
+        if value and value not in found:
+            found.append(value)
+
+    name_keys = ("symbol", "asset", "name", "ticker", "code", "pair")
+
+    def inspect(item):
+        if isinstance(item, dict):
+            values = [item.get(k) for k in name_keys]
+        else:
+            values = []
+            for k in name_keys:
+                try:
+                    values.append(getattr(item, k, None))
+                except Exception:
+                    values.append(None)
+
+        for value in values:
+            if value is None:
+                continue
+            text = str(value).strip()
+            compact = re.sub(r"[^A-Z]", "", text.upper())
+            if compact.startswith(wanted) and ("OTC" in text.upper() or "_OTC" in text.upper()):
+                add(text)
+
+    if isinstance(assets, dict):
+        for key, value in assets.items():
+            inspect(key)
+            inspect(value)
+    elif isinstance(assets, (list, tuple, set)):
+        for item in assets:
+            inspect(item)
+    else:
+        inspect(assets)
+
+    if found:
+        print(f"🟢 CNY DYNAMIC DISCOVERY {asset_code}: {found}", flush=True)
+
+    return found
+
+
 async def discover_asset_variants_by_id(client, asset_code):
     asset_id = CNY_OTC_ASSETS.get(asset_code)
 
@@ -841,10 +911,24 @@ async def get_candles(client, asset_code, timeframe):
         asset_code
     )
 
-    discovered = await discover_asset_variants_by_id(
+    # CNY OTC: first discover the live symbol from Pocket Option.
+    # Hard-coded IDs are retained only as a fallback.
+    discovered = []
+
+    if str(asset_code).upper().replace("/", "").endswith("CNY_OTC"):
+        discovered = await discover_cny_asset_variants(
+            client,
+            asset_code
+        )
+
+    id_discovered = await discover_asset_variants_by_id(
         client,
         asset_code
     )
+
+    for item in id_discovered:
+        if item not in discovered:
+            discovered.append(item)
 
     for item in discovered:
 
