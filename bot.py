@@ -1,19 +1,11 @@
+
 import os
 import asyncio
-import json
-import re
-import inspect
-import time
 import logging
-
+import time
 from datetime import datetime, timezone
-from threading import Thread
-from http.server import BaseHTTPRequestHandler, HTTPServer
 
-import numpy as np
 import pandas as pd
-import requests
-
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -26,2250 +18,590 @@ from telegram.ext import (
 from pocketoptionapi_async import AsyncPocketOptionClient
 
 
-# ==========================================
-# NASIRFX AI SIGNAL
-# ==========================================
+# ==========================================================
+# NASIRFX AI SIGNAL - SIGNAL ONLY
+# ==========================================================
 
-BOT_NAME = "NASIRFX AI SIGNAL"
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+POCKETOPTION_SSID = os.getenv("POCKETOPTION_SSID", "").strip()
+IS_DEMO = os.getenv("POCKETOPTION_DEMO", "true").lower() == "true"
+
+MIN_CANDLES = 55
+CANDLE_COUNT = 120
+MIN_CONFIRMATION = 7
+REQUEST_COOLDOWN = 10
+
+TIMEFRAMES = {
+    "S15": 15,
+    "S30": 30,
+    "M1": 60,
+    "M2": 120,
+    "M3": 180,
+    "M5": 300,
+}
+
+EXPIRIES = ["15s", "30s", "1m", "2m", "3m", "5m"]
+
+MARKETS = {
+    "📈 FOREX": [
+        "EURUSD", "GBPUSD", "USDJPY", "AUDUSD",
+        "USDCAD", "USDCHF", "NZDUSD", "EURGBP",
+    ],
+    "🌐 FOREX OTC": [
+        "EURUSD_otc", "GBPUSD_otc", "AUDCAD_otc",
+        "NZDUSD_otc", "USDJPY_otc", "EURGBP_otc",
+        "GBPJPY_otc", "AUDUSD_otc",
+    ],
+    "🍎 STOCKS": ["AAPL", "TSLA", "MSFT", "AMZN"],
+    "🍎 STOCKS OTC": ["AAPL_otc", "TSLA_otc"],
+    "🪙 CRYPTO": ["BTCUSD", "ETHUSD"],
+    "📊 INDICES": ["US30", "NAS100"],
+    "🛢️ COMMODITIES": ["XAUUSD", "XAGUSD"],
+}
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
+    format="%(asctime)s | %(levelname)s | %(message)s",
 )
-
-logger = logging.getLogger(__name__)
-
-
-# ==========================================
-# ENVIRONMENT VARIABLES
-# ==========================================
-
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-
-POCKET_OPTION_SSID = (
-    os.getenv("POCKET_OPTION_SSID")
-    or os.getenv("PO_SSID")
-)
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-
-# ==========================================
-# SAFETY SETTINGS
-# ==========================================
-
-IS_DEMO = True
-
-AUTO_TRADING = False
-BACKTESTING = False
-
-SIGNAL_ONLY = True
-
-# Automatic and Manual signals are enabled.
-MANUAL_MODE_ENABLED = True
-AUTOMATIC_MODE_ENABLED = True
-
-
-# ==========================================
-# CONNECTION SETTINGS
-# ==========================================
-
-CONNECT_TIMEOUT = 40
-CANDLE_TIMEOUT = 30
-
-CANDLE_COUNT = 100
-
-AI_MODEL = "gemini-2.5-flash-lite"
-
-
-# ==========================================
-# TIMEFRAMES
-# ==========================================
-
-TIMEFRAMES = {
-    "1m": 60,
-    "3m": 180,
-    "5m": 300,
-    "15m": 900,
-    "30m": 1800,
-    "1h": 3600,
-    "4h": 14400,
-}
-
-
-# ==========================================
-# EXPIRY TIMES
-# ==========================================
-
-EXPIRIES = {
-    "1m": 60,
-    "2m": 120,
-    "3m": 180,
-    "5m": 300,
-    "10m": 600,
-    "15m": 900,
-    "30m": 1800,
-    "1h": 3600,
-}
-
-
-# ==========================================
-# HIGHER TIMEFRAME CONFIRMATION
-# ==========================================
-
-HIGHER_TIMEFRAME = {
-    "1m": "3m",
-    "3m": "5m",
-    "5m": "15m",
-    "15m": "30m",
-    "30m": "1h",
-    "1h": "4h",
-    "4h": "4h",
-}
-
-
-# ==========================================
-# CNY OTC ASSET IDs
-# ==========================================
-
-CNY_OTC_ASSETS = {
-    "AEDCNY_otc": 538,
-    "BHDCNY_otc": 536,
-    "JODCNY_otc": 546,
-    "OMRCNY_otc": 544,
-    "QARCNY_otc": 542,
-    "SARCNY_otc": 540,
-}
-
-
-# ==========================================
-# LIVE SIGNAL SETTINGS
-# ==========================================
-
-MINIMUM_CANDLES = 55
-
-MINIMUM_CONFIRMATIONS = 4
-
-SIGNAL_COOLDOWN_SECONDS = 180
-
-MAX_TICK_AGE_SECONDS = 5
-
-
-# ==========================================
-# AUTOMATIC MODE STATE
-# ==========================================
-
-AUTO_USERS = set()
-
-AUTO_SCAN_RUNNING = False
-
-AUTO_SCAN_INTERVAL = 15
-
-LAST_SENT_SIGNALS = {}
-
-
-# ==========================================
-# USER SESSION STATE
-# ==========================================
-
-USER_SESSIONS = {}
-
-
-# ==========================================
-# SIGNAL SAFETY LABELS
-# ==========================================
-
-AUTO_TRADING_LABEL = "🚫 Auto-trading: OFF"
-
-BACKTESTING_LABEL = "🚫 Backtesting: OFF"
-
-SIGNAL_MODE_LABEL = "📡 Signal-only"
-
-
-# ==========================================
-# RENDER HEALTH SERVER
-# ==========================================
-
-PORT = int(os.getenv("PORT", "10000"))
-
-# ==========================================
-# PART 2 — MARKETS AND ASSET MANAGEMENT
-# ==========================================
-
-CATEGORIES = {
-    "📈 FOREX": {
-        "EUR/USD": "EURUSD",
-        "GBP/USD": "GBPUSD",
-        "USD/JPY": "USDJPY",
-        "USD/CHF": "USDCHF",
-        "AUD/USD": "AUDUSD",
-        "NZD/USD": "NZDUSD",
-        "USD/CAD": "USDCAD",
-        "EUR/GBP": "EURGBP",
-        "EUR/JPY": "EURJPY",
-        "EUR/CHF": "EURCHF",
-        "EUR/AUD": "EURAUD",
-        "EUR/CAD": "EURCAD",
-        "GBP/JPY": "GBPJPY",
-        "GBP/CHF": "GBPCHF",
-        "AUD/JPY": "AUDJPY",
-        "AUD/CAD": "AUDCAD",
-        "CAD/JPY": "CADJPY",
-        "CHF/JPY": "CHFJPY",
-    },
-
-    "🌐 FOREX OTC": {
-        "EUR/USD OTC": "EURUSD_otc",
-        "GBP/USD OTC": "GBPUSD_otc",
-        "USD/JPY OTC": "USDJPY_otc",
-        "USD/CHF OTC": "USDCHF_otc",
-        "AUD/USD OTC": "AUDUSD_otc",
-        "NZD/USD OTC": "NZDUSD_otc",
-        "USD/CAD OTC": "USDCAD_otc",
-        "EUR/GBP OTC": "EURGBP_otc",
-        "EUR/JPY OTC": "EURJPY_otc",
-        "EUR/CHF OTC": "EURCHF_otc",
-        "EUR/AUD OTC": "EURAUD_otc",
-        "EUR/CAD OTC": "EURCAD_otc",
-        "GBP/JPY OTC": "GBPJPY_otc",
-        "GBP/CHF OTC": "GBPCHF_otc",
-        "AUD/JPY OTC": "AUDJPY_otc",
-        "AUD/CAD OTC": "AUDCAD_otc",
-        "CAD/JPY OTC": "CADJPY_otc",
-        "CHF/JPY OTC": "CHFJPY_otc",
-        "AED/CNY OTC": "AEDCNY_otc",
-        "BHD/CNY OTC": "BHDCNY_otc",
-        "JOD/CNY OTC": "JODCNY_otc",
-        "OMR/CNY OTC": "OMRCNY_otc",
-        "QAR/CNY OTC": "QARCNY_otc",
-        "SAR/CNY OTC": "SARCNY_otc",
-    },
-
-    "🍎 STOCKS": {
-        "Apple": "AAPL",
-        "Microsoft": "MSFT",
-        "Amazon": "AMZN",
-        "Google": "GOOGL",
-        "Tesla": "TSLA",
-        "NVIDIA": "NVDA",
-        "Meta": "META",
-        "Netflix": "NFLX",
-    },
-
-    "🍎 STOCKS OTC": {
-        "Apple OTC": "AAPL_otc",
-        "Microsoft OTC": "MSFT_otc",
-        "Amazon OTC": "AMZN_otc",
-        "Google OTC": "GOOGL_otc",
-        "Tesla OTC": "TSLA_otc",
-        "NVIDIA OTC": "NVDA_otc",
-        "Meta OTC": "META_otc",
-        "Netflix OTC": "NFLX_otc",
-    },
-}
-
-
-# ==========================================
-# BUTTON ROW BUILDER
-# ==========================================
-
-def button_rows(items, row_size=2):
-    items = list(items)
-    return [
-        items[i:i + row_size]
-        for i in range(0, len(items), row_size)
-    ]
-
-
-# ==========================================
-# POCKET OPTION CONNECTION
-# ==========================================
-
-async def connect_client():
-    if not POCKET_OPTION_SSID:
-        raise RuntimeError(
-            "POCKET_OPTION_SSID is missing in Render Environment."
-        )
-
-    client = AsyncPocketOptionClient(POCKET_OPTION_SSID)
-
-    result = client.connect()
-
-    if inspect.isawaitable(result):
-        await asyncio.wait_for(
-            result,
-            timeout=CONNECT_TIMEOUT
-        )
-
-    logger.info("Pocket Option connection requested.")
-
-    return client
-
-
-# ==========================================
-# DISCONNECT CLIENT
-# ==========================================
-
-async def disconnect_client(client):
-    if client is None:
-        return
-
-    try:
-        result = client.disconnect()
-
-        if inspect.isawaitable(result):
-            await result
-
-    except Exception as exc:
-        logger.warning("Disconnect warning: %s", exc)
-
-
-# ==========================================
-# ASSET VARIANTS
-# ==========================================
-
-def get_asset_variants(asset_code):
-    variants = [
-        asset_code,
-        asset_code.upper(),
-        asset_code.lower(),
-    ]
-
-    if asset_code.endswith("_otc"):
-        base = asset_code[:-4]
-        variants.extend([
-            base + "_OTC",
-            base.upper() + "_otc",
-        ])
-
-    return list(dict.fromkeys(variants))
-
-
-# ==========================================
-# ASSET DISCOVERY BY ID
-# ==========================================
-
-async def discover_asset_variants_by_id(client, asset_code):
-    asset_id = CNY_OTC_ASSETS.get(asset_code)
-
-    if asset_id is None:
-        return get_asset_variants(asset_code)
-
-    variants = get_asset_variants(asset_code)
-
-    logger.info(
-        "CNY OTC asset registered: %s ID=%s",
-        asset_code,
-        asset_id
+log = logging.getLogger("NASIRFX")
+
+
+# ==========================================================
+# TELEGRAM MENUS
+# ==========================================================
+
+def main_menu():
+    return ReplyKeyboardMarkup(
+        [
+            ["📈 FOREX", "🌐 FOREX OTC"],
+            ["🍎 STOCKS", "🍎 STOCKS OTC"],
+            ["🪙 CRYPTO", "📊 INDICES"],
+            ["🛢️ COMMODITIES"],
+            ["⏱️ TIMEFRAME", "⌛ EXPIRY"],
+            ["📊 GET SIGNAL", "⚙️ SETTINGS"],
+        ],
+        resize_keyboard=True,
     )
 
-    return variants
+
+def pair_menu(market):
+    pairs = MARKETS[market]
+    rows = [pairs[i:i + 2] for i in range(0, len(pairs), 2)]
+    rows.append(["⬅️ MAIN MENU"])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
-# ==========================================
-# CANDLE NORMALIZATION
-# ==========================================
+def timeframe_menu():
+    return ReplyKeyboardMarkup(
+        [
+            ["S15", "S30"],
+            ["M1", "M2", "M3", "M5"],
+            ["⬅️ MAIN MENU"],
+        ],
+        resize_keyboard=True,
+    )
 
-def normalize_candles(raw_data):
-    if raw_data is None:
-        return None
 
-    if isinstance(raw_data, pd.DataFrame):
-        df = raw_data.copy()
+def expiry_menu():
+    return ReplyKeyboardMarkup(
+        [
+            ["15s", "30s", "1m"],
+            ["2m", "3m", "5m"],
+            ["⬅️ MAIN MENU"],
+        ],
+        resize_keyboard=True,
+    )
 
-    else:
-        try:
-            df = pd.DataFrame(raw_data)
-        except Exception:
-            return None
+
+# ==========================================================
+# CANDLE CONVERSION AND INDICATORS
+# ==========================================================
+
+def candle_timestamp(value):
+    """Convert candle timestamp to Unix seconds."""
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.timestamp()
+
+    number = float(value)
+
+    # Millisecond timestamps
+    if number > 100_000_000_000:
+        number /= 1000
+
+    return number
+
+
+def candles_to_dataframe(candles):
+    rows = []
+
+    for candle in candles:
+        rows.append({
+            "timestamp": candle_timestamp(candle.timestamp),
+            "open": float(candle.open),
+            "high": float(candle.high),
+            "low": float(candle.low),
+            "close": float(candle.close),
+            "volume": float(getattr(candle, "volume", 0) or 0),
+        })
+
+    df = pd.DataFrame(rows)
 
     if df.empty:
-        return None
-
-    rename_map = {}
-
-    for column in df.columns:
-        key = str(column).lower()
-
-        if key in ("open", "o"):
-            rename_map[column] = "open"
-
-        elif key in ("high", "h"):
-            rename_map[column] = "high"
-
-        elif key in ("low", "l"):
-            rename_map[column] = "low"
-
-        elif key in ("close", "c", "price"):
-            rename_map[column] = "close"
-
-        elif key in ("volume", "v"):
-            rename_map[column] = "volume"
-
-        elif key in ("time", "timestamp", "at", "from"):
-            rename_map[column] = "time"
-
-    df = df.rename(columns=rename_map)
-
-    required = ["open", "high", "low", "close"]
-
-    if not all(column in df.columns for column in required):
-        return None
-
-    for column in required:
-        df[column] = pd.to_numeric(
-            df[column],
-            errors="coerce"
-        )
-
-    df = df.dropna(subset=required)
-
-    if len(df) == 0:
-        return None
-
-    if "time" in df.columns:
-        df = df.sort_values("time")
-
-    return df.reset_index(drop=True)
-
-
-# ==========================================
-# CANDLE FRESHNESS CHECK
-# ==========================================
-
-def candle_is_current_or_recent(df, timeframe_seconds):
-    if df is None or len(df) == 0:
-        return False
-
-    if "time" not in df.columns:
-        return True
-
-    try:
-        latest = pd.to_datetime(
-            df["time"].iloc[-1],
-            unit="s",
-            utc=True
-        )
-
-        now = pd.Timestamp.now(tz="UTC")
-
-        age = (now - latest).total_seconds()
-
-        return age <= timeframe_seconds * 3
-
-    except Exception:
-        return True
-
-
-# ==========================================
-# FLEXIBLE CANDLE API
-# ==========================================
-
-async def call_candle_method(
-    client,
-    asset_code,
-    timeframe_seconds,
-    count
-):
-    method_names = [
-        "get_candles",
-        "get_candles_async",
-        "get_historical_candles",
-    ]
-
-    for method_name in method_names:
-        method = getattr(client, method_name, None)
-
-        if method is None:
-            continue
-
-        attempts = [
-            (
-                (asset_code, timeframe_seconds, count),
-                {}
-            )
-        ]
-# ==========================================
-# CANDLE NORMALIZATION — FIXED
-# ==========================================
-
-def normalize_candles(raw_data):
-    if raw_data is None:
-        return None
-
-    try:
-        if isinstance(raw_data, pd.DataFrame):
-            df = raw_data.copy()
-
-            if df.index.name in ("timestamp", "time", "datetime"):
-                df = df.reset_index()
-
-        else:
-            rows = []
-
-            for candle in raw_data:
-                if isinstance(candle, dict):
-                    rows.append(candle)
-                else:
-                    rows.append({
-                        "open": getattr(candle, "open", None),
-                        "high": getattr(candle, "high", None),
-                        "low": getattr(candle, "low", None),
-                        "close": getattr(candle, "close", None),
-                        "volume": getattr(candle, "volume", 0),
-                        "time": getattr(
-                            candle,
-                            "timestamp",
-                            getattr(candle, "time", None)
-                        )
-                    })
-
-            df = pd.DataFrame(rows)
-
-        if df.empty:
-            return None
-
-        df.columns = [str(c).lower() for c in df.columns]
-
-        aliases = {
-            "o": "open",
-            "h": "high",
-            "l": "low",
-            "c": "close",
-            "price": "close",
-            "timestamp": "time",
-            "datetime": "time",
-            "at": "time",
-            "from": "time",
-            "v": "volume",
-        }
-
-        df = df.rename(columns=aliases)
-
-        required = ["open", "high", "low", "close"]
-
-        if not all(c in df.columns for c in required):
-            return None
-
-        for col in required:
-            df[col] = pd.to_numeric(
-                df[col], errors="coerce"
-            )
-
-        df = df.dropna(subset=required)
-
-        if "time" in df.columns:
-            df["time"] = pd.to_datetime(
-                df["time"],
-                utc=True,
-                errors="coerce",
-                unit="s"
-                if pd.api.types.is_numeric_dtype(df["time"])
-                else None
-            )
-
-            df = df.dropna(subset=["time"])
-            df = df.sort_values("time")
-
-        return df.reset_index(drop=True)
-
-    except Exception as exc:
-        logger.exception("Candle normalization error: %s", exc)
-        return None
-
-
-# ==========================================
-# OFFICIAL POCKET OPTION CANDLE REQUEST
-# ==========================================
-
-async def call_candle_method(
-    client,
-    asset_code,
-    timeframe_seconds,
-    count
-):
-    try:
-        candles = await asyncio.wait_for(
-            client.get_candles(
-                asset=asset_code,
-                timeframe=timeframe_seconds,
-                count=count
-            ),
-            timeout=CANDLE_TIMEOUT
-        )
-
-        df = normalize_candles(candles)
-
-        if df is None:
-            logger.warning(
-                "Invalid candle format: %s",
-                asset_code
-            )
-            return None
-
-        if len(df) < MINIMUM_CANDLES:
-            logger.warning(
-                "%s: only %s candles received",
-                asset_code,
-                len(df)
-            )
-            return None
-
-        logger.info(
-            "LIVE candles received: %s | %s candles",
-            asset_code,
-            len(df)
-        )
-
         return df
 
-    except Exception as exc:
-        logger.warning(
-            "Candle request failed: %s | %s",
-            asset_code,
-            exc
-        )
-        return None
+    return df.sort_values("timestamp").drop_duplicates(
+        subset=["timestamp"], keep="last"
+    ).reset_index(drop=True)
 
 
-# ==========================================
-# GET CANDLES
-# ==========================================
+def closed_candles_only(df, timeframe_seconds):
+    """
+    Exclude the candle that is still forming.
+    Only candles whose closing time has passed are analyzed.
+    """
+    if df.empty:
+        return df
 
-async def get_candles(
-    client,
-    asset_code,
-    timeframe_seconds,
-    count=CANDLE_COUNT
-):
-    df = await call_candle_method(
-        client,
-        asset_code,
-        timeframe_seconds,
-        count
-    )
+    now = time.time()
 
-    if df is None:
-        logger.error(
-            "NO LIVE CANDLE DATA: %s",
-            asset_code
-        )
-        return None
+    return df[
+        (df["timestamp"] + timeframe_seconds) <= now
+    ].copy().reset_index(drop=True)
 
-    return df
-    
-# ==========================================
-# PART 3 — TECHNICAL ANALYSIS ENGINE
-# ==========================================
 
-# ==========================================
-# RSI — WILDER METHOD
-# ==========================================
+def add_indicators(df):
+    df = df.copy()
 
-def calculate_rsi(series, period=14):
-    series = pd.to_numeric(series, errors="coerce")
+    df["ema9"] = df["close"].ewm(
+        span=9, adjust=False
+    ).mean()
 
-    delta = series.diff()
+    df["ema21"] = df["close"].ewm(
+        span=21, adjust=False
+    ).mean()
+
+    df["ema50"] = df["close"].ewm(
+        span=50, adjust=False
+    ).mean()
+
+    delta = df["close"].diff()
 
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
 
     avg_gain = gain.ewm(
-        alpha=1 / period,
-        min_periods=period,
-        adjust=False
+        alpha=1 / 14, adjust=False, min_periods=14
     ).mean()
 
     avg_loss = loss.ewm(
-        alpha=1 / period,
-        min_periods=period,
-        adjust=False
+        alpha=1 / 14, adjust=False, min_periods=14
     ).mean()
 
-    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rs = avg_gain / avg_loss.replace(0, float("nan"))
+    df["rsi"] = 100 - (100 / (1 + rs))
 
-    rsi = 100 - (100 / (1 + rs))
-
-    rsi = rsi.where(avg_loss != 0, 100)
-
-    rsi = rsi.where(avg_gain != 0, 0)
-
-    return rsi
-
-
-# ==========================================
-# EMA
-# ==========================================
-
-def calculate_ema(series, period):
-    return series.ewm(
-        span=period,
-        adjust=False
+    # MACD 12, 26, 9
+    ema12 = df["close"].ewm(
+        span=12, adjust=False
     ).mean()
 
+    ema26 = df["close"].ewm(
+        span=26, adjust=False
+    ).mean()
 
-# ==========================================
-# TECHNICAL INDICATORS
-# ==========================================
+    df["macd"] = ema12 - ema26
+    df["macd_signal"] = df["macd"].ewm(
+        span=9, adjust=False
+    ).mean()
 
-def add_indicators(df):
-    if df is None or len(df) < MINIMUM_CANDLES:
-        return None
+    df["macd_hist"] = df["macd"] - df["macd_signal"]
 
-    data = df.copy()
+    return df.dropna().reset_index(drop=True)
 
-    data["EMA_9"] = calculate_ema(
-        data["close"], 9
-    )
 
-    data["EMA_21"] = calculate_ema(
-        data["close"], 21
-    )
-
-    data["EMA_50"] = calculate_ema(
-        data["close"], 50
-    )
-
-    data["RSI"] = calculate_rsi(
-        data["close"], 14
-    )
-
-    data["CANDLE_BODY"] = (
-        data["close"] - data["open"]
-    )
-
-    data["CANDLE_RANGE"] = (
-        data["high"] - data["low"]
-    )
-
-    data["BODY_PERCENT"] = (
-        data["CANDLE_BODY"].abs()
-        / data["CANDLE_RANGE"].replace(0, np.nan)
-    )
-
-    data["ATR"] = (
-        data["high"] - data["low"]
-    ).rolling(14).mean()
-
-    return data.dropna().reset_index(drop=True)
-
-
-# ==========================================
-# TREND ANALYSIS
-# ==========================================
-
-def analyze_trend(df):
-    data = add_indicators(df)
-
-    if data is None or len(data) < 5:
-        return "UNKNOWN", []
-
-    current = data.iloc[-1]
-
-    ema9 = current["EMA_9"]
-    ema21 = current["EMA_21"]
-    ema50 = current["EMA_50"]
-
-    confirmations = []
-
-    if ema9 > ema21:
-        confirmations.append("EMA 9 > EMA 21")
-    elif ema9 < ema21:
-        confirmations.append("EMA 9 < EMA 21")
-
-    if ema21 > ema50:
-        confirmations.append("EMA 21 > EMA 50")
-    elif ema21 < ema50:
-        confirmations.append("EMA 21 < EMA 50")
-
-    if current["close"] > ema50:
-        confirmations.append("Price above EMA 50")
-    elif current["close"] < ema50:
-        confirmations.append("Price below EMA 50")
-
-    if (
-        ema9 > ema21 > ema50
-        and current["close"] > ema9
-    ):
-        return "HIGHER", confirmations
-
-    if (
-        ema9 < ema21 < ema50
-        and current["close"] < ema9
-    ):
-        return "LOWER", confirmations
-
-    return "SIDEWAYS", confirmations
-
-
-# ==========================================
-# RSI CONFIRMATION
-# ==========================================
-
-def analyze_rsi(df):
-    data = add_indicators(df)
-
-    if data is None:
-        return "UNKNOWN", None
-
-    rsi = float(data.iloc[-1]["RSI"])
-
-    # Strong direction confirmation.
-    # Avoid entering extreme overbought/oversold zones.
-
-    if 52 <= rsi <= 68:
-        return "HIGHER", rsi
-
-    if 32 <= rsi <= 48:
-        return "LOWER", rsi
-
-    return "NEUTRAL", rsi
-
-
-# ==========================================
-# CANDLE DIRECTION
-# ==========================================
-
-def analyze_candle(df):
-    if df is None or len(df) < 3:
-        return "UNKNOWN"
-
-    candle = df.iloc[-1]
-
-    if candle["close"] > candle["open"]:
-        return "HIGHER"
-
-    if candle["close"] < candle["open"]:
-        return "LOWER"
-
-    return "NEUTRAL"
-
-
-# ==========================================
-# PREVIOUS CANDLE CONFIRMATION
-# ==========================================
-
-def analyze_previous_candle(df):
-    if df is None or len(df) < 3:
-        return "UNKNOWN"
-
-    candle = df.iloc[-2]
-
-    if candle["close"] > candle["open"]:
-        return "HIGHER"
-
-    if candle["close"] < candle["open"]:
-        return "LOWER"
-
-    return "NEUTRAL"
-
-
-# ==========================================
-# SUPPORT AND RESISTANCE
-# ==========================================
-
-def calculate_support_resistance(df, lookback=30):
-    if df is None or len(df) < lookback:
-        return None, None
-
-    recent = df.tail(lookback)
-
-    support = float(recent["low"].min())
-
-    resistance = float(recent["high"].max())
-
-    return support, resistance
-
-
-# ==========================================
-# SUPPORT / RESISTANCE FILTER
-# ==========================================
-
-def support_resistance_filter(
-    df,
-    direction,
-    distance_percent=0.001
-):
-    support, resistance = calculate_support_resistance(df)
-
-    if support is None or resistance is None:
-        return False
-
-    price = float(df.iloc[-1]["close"])
-
-    if price <= 0:
-        return False
-
-    distance_support = abs(price - support) / price
-
-    distance_resistance = abs(resistance - price) / price
-
-    if direction == "HIGHER":
-        # Avoid buying directly into resistance.
-        return distance_resistance > distance_percent
-
-    if direction == "LOWER":
-        # Avoid selling directly into support.
-        return distance_support > distance_percent
-
-    return False
-
-
-# ==========================================
-# HIGHER TIMEFRAME CONFIRMATION
-# ==========================================
-
-async def get_higher_timeframe_direction(
-    client,
-    asset_code,
-    timeframe_name
-):
-    higher_name = HIGHER_TIMEFRAME.get(
-        timeframe_name
-    )
-
-    if not higher_name:
-        return "UNKNOWN"
-
-    higher_seconds = TIMEFRAMES.get(higher_name)
-
-    if not higher_seconds:
-        return "UNKNOWN"
-
-    df = await get_candles(
-        client,
-        asset_code,
-        higher_seconds,
-        CANDLE_COUNT
-    )
-
-    if df is None:
-        return "UNKNOWN"
-
-    direction, _ = analyze_trend(df)
-
-    return direction
-
-
-# ==========================================
-# CONFIRMATION SCORE
-# ==========================================
-
-def calculate_confirmation_score(
-    direction,
-    confirmations
-):
-    if direction not in ("HIGHER", "LOWER"):
-        return 0
-
-    count = len(confirmations)
-
-    score_map = {
-        0: 0,
-        1: 20,
-        2: 40,
-        3: 60,
-        4: 80,
-        5: 100,
-    }
-
-    return score_map.get(count, 100)
-
-
-# ==========================================
+# ==========================================================
 # ULTRA CONFIRMATION ENGINE
-# ==========================================
+# ==========================================================
 
-def ultra_confirmation(
-    trend,
-    rsi_direction,
-    current_candle,
-    previous_candle,
-    higher_trend,
-    df
-):
-    confirmations = []
-
-    if trend == "UNKNOWN":
-        return "WAIT", [], 0
-
-    # 1 — Main trend
-    if trend in ("HIGHER", "LOWER"):
-        confirmations.append("Main trend confirmed")
-
-    # 2 — RSI
-    if rsi_direction == trend:
-        confirmations.append("RSI confirmed")
-
-    # 3 — Current candle
-    if current_candle == trend:
-        confirmations.append("Current candle confirmed")
-
-    # 4 — Previous candle
-    if previous_candle == trend:
-        confirmations.append("Previous candle confirmed")
-
-    # 5 — Higher timeframe
-    if higher_trend == trend:
-        confirmations.append("Higher timeframe confirmed")
-
-    score = calculate_confirmation_score(
-        trend,
-        confirmations
-    )
-
-    # All five checks are considered.
-    # At least four must agree.
-
-    if len(confirmations) < MINIMUM_CONFIRMATIONS:
-        return "WAIT", confirmations, score
-
-    if not support_resistance_filter(
-        df,
-        trend
-    ):
-        return "WAIT", confirmations, score
-
-    return trend, confirmations, score
-
-
-# ==========================================
-# ANALYSIS SUMMARY
-# ==========================================
-
-def build_analysis_summary(
-    direction,
-    confirmations,
-    score,
-    rsi_value
-):
-    if direction == "HIGHER":
-        label = "🟢 HIGHER"
-
-    elif direction == "LOWER":
-        label = "🔴 LOWER"
-
-    else:
-        label = "⏳ WAIT"
-
-    confirmation_text = "\n".join(
-        f"✅ {item}" for item in confirmations
-    )
-
-    if not confirmation_text:
-        confirmation_text = "⚠️ Confirmation not sufficient"
-
-    rsi_text = (
-        f"{rsi_value:.2f}"
-        if rsi_value is not None
-        else "Unavailable"
-    )
-
-    return (
-        f"📊 Direction: {label}\n"
-        f"📈 RSI: {rsi_text}\n"
-        f"🧠 Confirmation score: {score}%\n\n"
-        f"🔎 Confirmation details:\n"
-        f"{confirmation_text}\n\n"
-        f"🚫 Auto-trading: OFF\n"
-        f"🚫 Backtesting: OFF\n"
-        f"📡 Signal-only"
-)
- 
-# ==========================================
-# PART 4 — SIGNAL GENERATION ENGINE
-# ==========================================
-
-# ==========================================
-# GEMINI AI ANALYSIS
-# ==========================================
-
-async def gemini_analysis(
-    asset,
-    timeframe,
-    direction,
-    confirmations,
-    rsi_value,
-    price
-):
-    if not GEMINI_API_KEY:
-        return "Gemini API key not configured."
-
-    prompt = f"""
-You are NASIRFX AI market analysis assistant.
-
-Analyze this LIVE technical signal.
-
-Asset: {asset}
-Timeframe: {timeframe}
-Direction: {direction}
-Price: {price}
-RSI: {rsi_value}
-Confirmations: {confirmations}
-
-Rules:
-- Do not invent market data.
-- Do not change HIGHER or LOWER into a trade instruction.
-- Explain the technical confirmations briefly.
-- If direction is WAIT, explain that confirmation is insufficient.
-- Do not claim guaranteed accuracy.
-- Do not execute trades.
-"""
-
-    try:
-        response = await asyncio.to_thread(
-            requests.post,
-            (
-                "https://generativelanguage.googleapis.com/"
-                "v1beta/models/"
-                f"{AI_MODEL}:generateContent"
-            ),
-            params={"key": GEMINI_API_KEY},
-            json={
-                "contents": [
-                    {
-                        "parts": [
-                            {"text": prompt}
-                        ]
-                    }
-                ]
-            },
-            timeout=20
-        )
-
-        response.raise_for_status()
-
-        result = response.json()
-
-        return (
-            result["candidates"][0]
-            ["content"]["parts"][0]["text"]
-        )
-
-    except Exception as exc:
-        logger.warning("Gemini error: %s", exc)
-
-        return "AI explanation unavailable."
-
-
-# ==========================================
-# SIGNAL PANEL
-# ==========================================
-
-def build_signal_panel(
-    asset,
-    timeframe,
-    expiry,
-    direction,
-    price,
-    rsi_value,
-    confirmations,
-    score,
-    ai_text=""
-):
-    if direction == "HIGHER":
-        signal_label = "🟢 HIGHER"
-
-    elif direction == "LOWER":
-        signal_label = "🔴 LOWER"
-
-    else:
-        signal_label = "⏳ WAIT"
-
-    confirmation_lines = "\n".join(
-        f"✅ {item}"
-        for item in confirmations
-    )
-
-    if not confirmation_lines:
-        confirmation_lines = "⚠️ No sufficient confirmations"
-
-    rsi_text = (
-        f"{rsi_value:.2f}"
-        if rsi_value is not None
-        else "Unavailable"
-    )
-
-    message = f"""
-━━━━━━━━━━━━━━━━━━━━
-       NASIRFX AI SIGNAL
-━━━━━━━━━━━━━━━━━━━━
-
-💱 Asset: {asset}
-
-📊 Timeframe: {timeframe}
-⏳ Expiry: {expiry}
-
-🎯 SIGNAL: {signal_label}
-
-💰 Analysis price: {price}
-
-📈 RSI: {rsi_text}
-
-🧠 Confirmation score: {score}%
-
-━━━━━━━━━━━━━━━━━━━━
-       ULTRA CONFIRMATION
-━━━━━━━━━━━━━━━━━━━━
-
-{confirmation_lines}
-
-━━━━━━━━━━━━━━━━━━━━
-       AI ANALYSIS
-━━━━━━━━━━━━━━━━━━━━
-
-{ai_text}
-
-━━━━━━━━━━━━━━━━━━━━
-
-📡 Data source: Pocket Option API
-🚫 Auto-trading: OFF
-🚫 Backtesting: OFF
-🔒 Signal-only mode
-
-⚠️ Signals are not guaranteed.
-━━━━━━━━━━━━━━━━━━━━
-"""
-
-    return message.strip()
-
-
-# ==========================================
-# GET SIGNAL
-# ==========================================
-
-async def get_signal(
-    asset_code,
-    timeframe_name,
-    expiry_name,
-    client=None
-):
-    own_client = client is None
-
-    if own_client:
-        client = await connect_client()
-
-    try:
-        timeframe_seconds = TIMEFRAMES.get(
-            timeframe_name
-        )
-
-        if not timeframe_seconds:
-            return None
-
-        if expiry_name not in EXPIRIES:
-            return None
-
-        # Main timeframe candles
-        df = await get_candles(
-            client,
-            asset_code,
-            timeframe_seconds,
-            CANDLE_COUNT
-        )
-
-        if df is None or len(df) < MINIMUM_CANDLES:
-            logger.info(
-                "Insufficient candles: %s",
-                asset_code
-            )
-            return None
-
-        # Technical indicators
-        trend, trend_details = analyze_trend(df)
-
-        rsi_direction, rsi_value = analyze_rsi(df)
-
-        current_candle = analyze_candle(df)
-
-        previous_candle = analyze_previous_candle(df)
-
-        # Higher timeframe
-        higher_trend = await get_higher_timeframe_direction(
-            client,
-            asset_code,
-            timeframe_name
-        )
-
-        # Ultra confirmation
-        direction, confirmations, score = ultra_confirmation(
-            trend,
-            rsi_direction,
-            current_candle,
-            previous_candle,
-            higher_trend,
-            df
-        )
-
-        # Latest available candle close
-        price = float(df.iloc[-1]["close"])
-
-        # Gemini explanation only.
-        # Gemini cannot override technical direction.
-        ai_text = await gemini_analysis(
-            asset_code,
-            timeframe_name,
-            direction,
-            confirmations,
-            rsi_value,
-            price
-        )
-
-        message = build_signal_panel(
-            asset=asset_code,
-            timeframe=timeframe_name,
-            expiry=expiry_name,
-            direction=direction,
-            price=price,
-            rsi_value=rsi_value,
-            confirmations=confirmations,
-            score=score,
-            ai_text=ai_text
-        )
-
+def analyze_market(df):
+    if len(df) < MIN_CANDLES:
         return {
-            "asset": asset_code,
-            "timeframe": timeframe_name,
-            "expiry": expiry_name,
-            "direction": direction,
-            "price": price,
-            "rsi": rsi_value,
-            "confirmations": confirmations,
-            "score": score,
-            "message": message,
-            "timestamp": time.time(),
+            "signal": "WAIT",
+            "score": 0,
+            "reason": (
+                f"Waxaa loo baahan yahay ugu yaraan "
+                f"{MIN_CANDLES} candles xiran."
+            ),
         }
 
-    except Exception as exc:
-        logger.exception(
-            "Signal generation failed for %s: %s",
-            asset_code,
-            exc
-        )
-        return None
+    df = add_indicators(df)
 
-    finally:
-        if own_client:
-            await disconnect_client(client)
+    if len(df) < 3:
+        return {
+            "signal": "WAIT",
+            "score": 0,
+            "reason": "Indicators-ku wali ma diyaarsana.",
+        }
 
+    last = df.iloc[-1]
+    previous = df.iloc[-2]
 
-# ==========================================
-# SIGNAL DUPLICATE PROTECTION
-# ==========================================
-
-def signal_is_duplicate(
-    user_id,
-    asset,
-    timeframe,
-    direction
-):
-    key = (
-        user_id,
-        asset,
-        timeframe,
-        direction
-    )
-
-    now = time.time()
-
-    previous = LAST_SENT_SIGNALS.get(key, 0)
-
-    if now - previous < SIGNAL_COOLDOWN_SECONDS:
-        return True
-
-    LAST_SENT_SIGNALS[key] = now
-
-    return False
-
-
-# ==========================================
-# SEND VALID SIGNAL
-# ==========================================
-
-async def send_signal_to_user(
-    context,
-    user_id,
-    signal
-):
-    if not signal:
-        return False
-
-    if signal["direction"] not in ("HIGHER", "LOWER"):
-        return False
-
-    if len(signal["confirmations"]) < MINIMUM_CONFIRMATIONS:
-        return False
-
-    if signal_is_duplicate(
-        user_id,
-        signal["asset"],
-        signal["timeframe"],
-        signal["direction"]
-    ):
-        return False
-
-    try:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=signal["message"]
-        )
-
-        return True
-
-    except Exception as exc:
-        logger.warning(
-            "Telegram send failed for %s: %s",
-            user_id,
-            exc
-        )
-
-        return False
-        
-# ==========================================
-# PART 5 — TELEGRAM BOT AND USER INTERFACE
-# ==========================================
-
-# ==========================================
-# MAIN MENU
-# ==========================================
-
-def main_menu():
-    keyboard = [
-        ["📡 MANUAL MODE", "🤖 AUTOMATIC MODE"],
-        ["▶️ START AUTOMATIC", "⏹ STOP AUTOMATIC"],
-        ["📊 FOREX", "🌐 FOREX OTC"],
-        ["🍎 STOCKS", "🍎 STOCKS OTC"],
-        ["⚙️ SETTINGS", "ℹ️ ABOUT"],
+    higher_checks = [
+        last["ema9"] > last["ema21"],
+        last["ema21"] > last["ema50"],
+        last["close"] > last["ema9"],
+        last["close"] > last["ema21"],
+        last["rsi"] > 50 and last["rsi"] < 70,
+        last["macd"] > last["macd_signal"],
+        last["macd_hist"] > 0,
+        last["close"] > last["open"],
     ]
 
-    return ReplyKeyboardMarkup(
-        keyboard,
-        resize_keyboard=True
+    lower_checks = [
+        last["ema9"] < last["ema21"],
+        last["ema21"] < last["ema50"],
+        last["close"] < last["ema9"],
+        last["close"] < last["ema21"],
+        last["rsi"] < 50 and last["rsi"] > 30,
+        last["macd"] < last["macd_signal"],
+        last["macd_hist"] < 0,
+        last["close"] < last["open"],
+    ]
+
+    higher_score = sum(higher_checks)
+    lower_score = sum(lower_checks)
+
+    if higher_score >= MIN_CONFIRMATION and higher_score > lower_score:
+        signal = "HIGHER"
+        score = higher_score
+    elif lower_score >= MIN_CONFIRMATION and lower_score > higher_score:
+        signal = "LOWER"
+        score = lower_score
+    else:
+        signal = "WAIT"
+        score = max(higher_score, lower_score)
+
+    return {
+        "signal": signal,
+        "score": score,
+        "higher_score": higher_score,
+        "lower_score": lower_score,
+        "price": float(last["close"]),
+        "rsi": float(last["rsi"]),
+        "ema9": float(last["ema9"]),
+        "ema21": float(last["ema21"]),
+        "ema50": float(last["ema50"]),
+        "macd": float(last["macd"]),
+        "macd_signal": float(last["macd_signal"]),
+        "candle_time": float(last["timestamp"]),
+    }
+
+
+# ==========================================================
+# SIGNAL REQUEST
+# ==========================================================
+
+async def get_signal(client, asset, timeframe_name):
+    timeframe_seconds = TIMEFRAMES[timeframe_name]
+
+    candles = await client.get_candles(
+        asset=asset,
+        timeframe=timeframe_seconds,
+        count=CANDLE_COUNT,
+    )
+
+    if not candles:
+        return None, "Pocket Option wax candle ah ma soo celin."
+
+    df = candles_to_dataframe(candles)
+    df = closed_candles_only(df, timeframe_seconds)
+
+    if len(df) < MIN_CANDLES:
+        return None, (
+            f"Candles xiran oo ku filan lama helin. "
+            f"Hadda: {len(df)} / {MIN_CANDLES}."
+        )
+
+    result = analyze_market(df)
+
+    if result["signal"] == "WAIT":
+        return result, None
+
+    return result, None
+
+
+# ==========================================================
+# TELEGRAM COMMANDS
+# ==========================================================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.setdefault("asset", "EURUSD_otc")
+    context.user_data.setdefault("timeframe", "M1")
+    context.user_data.setdefault("expiry", "2m")
+    context.user_data.setdefault("last_request", 0)
+
+    await update.message.reply_text(
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "       NASIRFX AI SIGNAL\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "✅ LIVE market analysis\n"
+        "✅ Closed candle analysis\n"
+        "✅ EMA 9 / 21 / 50\n"
+        "✅ RSI 14\n"
+        "✅ MACD 12 / 26 / 9\n"
+        "✅ Ultra Confirmation\n\n"
+        "🚫 Auto-trading: OFF\n"
+        "🚫 Backtesting: OFF\n"
+        "📡 Signal-only system\n\n"
+        "Dooro market-ka:",
+        reply_markup=main_menu(),
     )
 
 
-# ==========================================
-# TIMEFRAME MENU
-# ==========================================
-
-def timeframe_menu():
-    return ReplyKeyboardMarkup(
-        button_rows(TIMEFRAMES.keys(), 2)
-        + [["🔙 BACK TO MENU"]],
-        resize_keyboard=True
+async def send_settings(update, context):
+    await update.message.reply_text(
+        "⚙️ NASIRFX SETTINGS\n\n"
+        f"Asset: {context.user_data.get('asset', 'EURUSD_otc')}\n"
+        f"Timeframe: {context.user_data.get('timeframe', 'M1')}\n"
+        f"Expiry: {context.user_data.get('expiry', '2m')}\n\n"
+        "Auto-trading: OFF\n"
+        "Backtesting: OFF",
+        reply_markup=main_menu(),
     )
 
 
-# ==========================================
-# EXPIRY MENU
-# ==========================================
-
-def expiry_menu():
-    return ReplyKeyboardMarkup(
-        button_rows(EXPIRIES.keys(), 2)
-        + [["🔙 BACK TO MENU"]],
-        resize_keyboard=True
-    )
-
-
-# ==========================================
-# PAIR MENU
-# ==========================================
-
-def pair_menu(category):
-    pairs = CATEGORIES.get(category, {})
-
-    return ReplyKeyboardMarkup(
-        button_rows(pairs.keys(), 2)
-        + [["🔙 BACK TO MENU"]],
-        resize_keyboard=True
-    )
-
-
-# ==========================================
-# START COMMAND
-# ==========================================
-
-async def start_command(
+async def handle_message(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-    user_id = update.effective_user.id
-
-    USER_SESSIONS.setdefault(
-        user_id,
-        {
-            "mode": None,
-            "category": None,
-            "asset": None,
-            "timeframe": None,
-            "expiry": None,
-        }
-    )
-
-    await update.message.reply_text(
-        f"""
-👋 Welcome to {BOT_NAME}
-
-📡 LIVE MARKET SIGNALS
-
-Choose your mode below.
-
-📌 Manual Mode
-You select the market and pair.
-
-🤖 Automatic Mode
-Bot scans available markets.
-
-🚫 Auto-trading: OFF
-🚫 Backtesting: OFF
-📡 Signal-only
-""",
-        reply_markup=main_menu()
-    )
-
-
-# ==========================================
-# MANUAL MODE
-# ==========================================
-
-async def manual_mode(update, context):
-    user_id = update.effective_user.id
-
-    USER_SESSIONS[user_id]["mode"] = "MANUAL"
-
-    await update.message.reply_text(
-        "📡 MANUAL MODE\n\nChoose your market:",
-        reply_markup=main_menu()
-    )
-
-
-# ==========================================
-# AUTOMATIC MODE
-# ==========================================
-
-async def automatic_mode(update, context):
-    user_id = update.effective_user.id
-
-    USER_SESSIONS[user_id]["mode"] = "AUTOMATIC"
-
-    await update.message.reply_text(
-        """
-🤖 AUTOMATIC MODE
-
-Choose START AUTOMATIC to begin scanning.
-
-The bot will send confirmed HIGHER/LOWER
-signals only.
-
-🚫 Auto-trading: OFF
-🚫 Backtesting: OFF
-""",
-        reply_markup=main_menu()
-    )
-
-
-# ==========================================
-# START AUTOMATIC SCANNING
-# ==========================================
-
-async def start_automatic(update, context):
-    user_id = update.effective_user.id
-
-    AUTO_USERS.add(user_id)
-
-    await update.message.reply_text(
-        """
-<escape>🤖 AUTOMATIC SCANNING ACTIVATED</escape>
-
-📡 Market scanning enabled.
-
-Markets:
-• Forex
-• Forex OTC
-• Stocks
-• Stocks OTC
-
-🚫 Auto-trading: OFF
-🚫 Backtesting: OFF
-📡 Signal-only
-""",
-        reply_markup=main_menu()
-    )
-
-
-# ==========================================
-# STOP AUTOMATIC SCANNING
-# ==========================================
-
-async def stop_automatic(update, context):
-    user_id = update.effective_user.id
-
-    AUTO_USERS.discard(user_id)
-
-    await update.message.reply_text(
-        "⏹ Automatic scanning stopped.",
-        reply_markup=main_menu()
-    )
-
-
-# ==========================================
-# MARKET SELECTION
-# ==========================================
-
-async def select_market(update, context, category):
-    user_id = update.effective_user.id
-
-    USER_SESSIONS[user_id]["category"] = category
-
-    await update.message.reply_text(
-        f"Choose pair from {category}:",
-        reply_markup=pair_menu(category)
-    )
-
-
-# ==========================================
-# PAIR SELECTION
-# ==========================================
-
-async def select_pair(update, context, pair_name):
-    user_id = update.effective_user.id
-
-    session = USER_SESSIONS.setdefault(
-        user_id,
-        {}
-    )
-
-    category = session.get("category")
-
-    if not category:
-        return
-
-    asset_code = CATEGORIES[category].get(pair_name)
-
-    if not asset_code:
-        return
-
-    session["asset"] = asset_code
-    session["pair_name"] = pair_name
-
-    await update.message.reply_text(
-        f"💱 Selected: {pair_name}\n\nChoose timeframe:",
-        reply_markup=timeframe_menu()
-    )
-
-
-# ==========================================
-# TIMEFRAME SELECTION
-# ==========================================
-
-async def select_timeframe(update, context, timeframe_name):
-    user_id = update.effective_user.id
-
-    session = USER_SESSIONS.get(user_id, {})
-
-    if timeframe_name not in TIMEFRAMES:
-        return
-
-    session["timeframe"] = timeframe_name
-
-    await update.message.reply_text(
-        f"📊 Timeframe: {timeframe_name}\n\nChoose expiry:",
-        reply_markup=expiry_menu()
-    )
-
-
-# ==========================================
-# EXPIRY SELECTION
-# ==========================================
-
-async def select_expiry(update, context, expiry_name):
-    user_id = update.effective_user.id
-
-    session = USER_SESSIONS.get(user_id, {})
-
-    if expiry_name not in EXPIRIES:
-        return
-
-    session["expiry"] = expiry_name
-
-    await update.message.reply_text(
-        "⏳ Preparing LIVE analysis...",
-        reply_markup=main_menu()
-    )
-
-    asset = session.get("asset")
-    timeframe = session.get("timeframe")
-
-    if not asset or not timeframe:
-        await update.message.reply_text(
-            "⚠️ Please select the pair and timeframe again."
-        )
-        return
-
-    await run_manual_analysis(
-        update,
-        context,
-        asset,
-        timeframe,
-        expiry_name
-    )
-
-
-# ==========================================
-# MANUAL ANALYSIS
-# ==========================================
-
-async def run_manual_analysis(
-    update,
-    context,
-    asset,
-    timeframe,
-    expiry
-):
-    await update.message.reply_text(
-        "🔄 Connecting to Pocket Option LIVE data..."
-    )
-
-    try:
-        signal = await get_signal(
-            asset,
-            timeframe,
-            expiry
-        )
-
-        if not signal:
-            await update.message.reply_text(
-                "⚠️ No reliable candle data received. Try again later."
-            )
-            return
-
-        if signal["direction"] == "WAIT":
-            await update.message.reply_text(
-                signal["message"]
-            )
-            return
-
-        await update.message.reply_text(
-            signal["message"]
-        )
-
-    except Exception as exc:
-        logger.exception("Manual analysis error: %s", exc)
-
-        await update.message.reply_text(
-            "❌ Analysis failed. Check Pocket Option connection and logs."
-        )
-
-
-# ==========================================
-# SETTINGS
-# ==========================================
-
-async def settings_command(update, context):
-    await update.message.reply_text(
-        f"""
-⚙️ NASIRFX SETTINGS
-
-Manual Mode: {'ON' if MANUAL_MODE_ENABLED else 'OFF'}
-
-Automatic Mode: {'ON' if AUTOMATIC_MODE_ENABLED else 'OFF'}
-
-Auto-trading: OFF
-Backtesting: OFF
-
-Signal-only: ON
-
-Timeframes:
-{', '.join(TIMEFRAMES.keys())}
-
-Expiries:
-{', '.join(EXPIRIES.keys())}
-"""
-    )
-
-
-# ==========================================
-# ABOUT
-# ==========================================
-
-async def about_command(update, context):
-    await update.message.reply_text(
-        """
-ℹ️ NASIRFX AI SIGNAL
-
-LIVE market analysis.
-
-Technical indicators:
-• EMA 9 / 21 / 50
-• RSI 14
-• Support and Resistance
-• Higher timeframe trend
-• Ultra Confirmation
-• Gemini AI explanation
-
-🚫 No automatic trading.
-🚫 No backtesting.
-📡 Signal-only.
-"""
-    )
-
-
-# ==========================================
-# TEXT MESSAGE HANDLER
-# ==========================================
-
-async def message_handler(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
     if not update.message or not update.message.text:
         return
 
-    user_id = update.effective_user.id
-    text = update.message.text.strip()
+    msg = update.message.text.strip()
 
-    USER_SESSIONS.setdefault(
-        user_id,
-        {
-            "mode": None,
-            "category": None,
-            "asset": None,
-            "timeframe": None,
-            "expiry": None,
-        }
-    )
-
-    if text == "📡 MANUAL MODE":
-        await manual_mode(update, context)
-        return
-
-    if text == "🤖 AUTOMATIC MODE":
-        await automatic_mode(update, context)
-        return
-
-    if text == "▶️ START AUTOMATIC":
-        await start_automatic(update, context)
-        return
-
-    if text == "⏹ STOP AUTOMATIC":
-        await stop_automatic(update, context)
-        return
-
-    if text == "⚙️ SETTINGS":
-        await settings_command(update, context)
-        return
-
-    if text == "ℹ️ ABOUT":
-        await about_command(update, context)
-        return
-
-    if text == "🔙 BACK TO MENU":
+    if msg == "⬅️ MAIN MENU":
         await update.message.reply_text(
-            "Main menu:",
-            reply_markup=main_menu()
+            "Dooro market-ka:",
+            reply_markup=main_menu(),
         )
         return
 
-    if text in CATEGORIES:
-        await select_market(update, context, text)
-        return
-
-    for category, pairs in CATEGORIES.items():
-        if text in pairs:
-            await select_pair(update, context, text)
-            return
-
-    if text in TIMEFRAMES:
-        await select_timeframe(update, context, text)
-        return
-
-    if text in EXPIRIES:
-        await select_expiry(update, context, text)
-        return
-
-    await update.message.reply_text(
-        "Please select an option from the menu.",
-        reply_markup=main_menu()
+    if msg in MARKETS:
+        context.user_data["market"] = msg
+        await update.message.reply_text(
+            f"{msg}\nDooro asset-ka:",
+            reply_markup=pair_menu(msg),
         )
-    
-# ==========================================
-# PART 6 — AUTOMATIC SCANNER
-# ==========================================
+        return
 
-AUTO_SCAN_INTERVAL = 15
+    all_pairs = [
+        pair for pairs in MARKETS.values() for pair in pairs
+    ]
 
-# Prevent multiple scanner tasks
-AUTO_SCAN_TASK = None
-
-# Prevent concurrent scans of the same asset
-SCANNING_LOCK = asyncio.Lock()
-
-
-# ==========================================
-# AUTOMATIC SCAN CONFIGURATION
-# ==========================================
-
-AUTO_TIMEFRAME = "1m"
-AUTO_EXPIRY = "2m"
-
-# Limit scanning workload per cycle.
-# Increase only after confirming API capacity.
-MAX_ASSETS_PER_CYCLE = 12
-
-
-# ==========================================
-# BUILD AUTOMATIC ASSET LIST
-# ==========================================
-
-def get_automatic_assets():
-    assets = []
-
-    for category, pairs in CATEGORIES.items():
-        for pair_name, asset_code in pairs.items():
-            assets.append({
-                "category": category,
-                "pair": pair_name,
-                "asset": asset_code,
-            })
-
-    return assets
-
-
-# ==========================================
-# AUTOMATIC SCAN ONE ASSET
-# ==========================================
-
-async def scan_one_asset(
-    client,
-    context,
-    asset_info,
-    user_ids
-):
-    asset = asset_info["asset"]
-
-    try:
-        signal = await get_signal(
-            asset,
-            AUTO_TIMEFRAME,
-            AUTO_EXPIRY,
-            client=client
+    if msg in all_pairs:
+        context.user_data["asset"] = msg
+        await update.message.reply_text(
+            f"Asset la doortay: {msg}\nDooro timeframe:",
+            reply_markup=timeframe_menu(),
         )
+        return
 
-        if not signal:
-            return
+    if msg == "⏱️ TIMEFRAME":
+        await update.message.reply_text(
+            "Dooro timeframe:",
+            reply_markup=timeframe_menu(),
+        )
+        return
 
-        if signal["direction"] not in ("HIGHER", "LOWER"):
-            return
+    if msg in TIMEFRAMES:
+        context.user_data["timeframe"] = msg
+        await update.message.reply_text(
+            f"Timeframe: {msg}\nDooro expiry:",
+            reply_markup=expiry_menu(),
+        )
+        return
 
-        if len(signal["confirmations"]) < MINIMUM_CONFIRMATIONS:
-            return
+    if msg == "⌛ EXPIRY":
+        await update.message.reply_text(
+            "Dooro expiry:",
+            reply_markup=expiry_menu(),
+        )
+        return
 
-        for user_id in list(user_ids):
-            if user_id not in AUTO_USERS:
-                continue
+    if msg in EXPIRIES:
+        context.user_data["expiry"] = msg
+        await update.message.reply_text(
+            f"✅ Settings waa la keydiyey.\n"
+            f"Expiry: {msg}",
+            reply_markup=main_menu(),
+        )
+        return
 
-            await send_signal_to_user(
-                context,
-                user_id,
-                signal
+    if msg == "⚙️ SETTINGS":
+        await send_settings(update, context)
+        return
+
+    if msg == "📊 GET SIGNAL":
+        now = time.time()
+        previous = context.user_data.get("last_request", 0)
+
+        if now - previous < REQUEST_COOLDOWN:
+            await update.message.reply_text(
+                "⏳ Fadlan sug dhowr ilbiriqsi ka hor codsi kale."
             )
+            return
 
-    except Exception as exc:
-        logger.warning(
-            "Automatic scan failed for %s: %s",
-            asset,
-            exc
+        context.user_data["last_request"] = now
+
+        client = context.application.bot_data.get("pocket_client")
+
+        if client is None:
+            await update.message.reply_text(
+                "⚠️ Pocket Option connection ma jiro."
+            )
+            return
+
+        asset = context.user_data.get("asset", "EURUSD_otc")
+        timeframe = context.user_data.get("timeframe", "M1")
+        expiry = context.user_data.get("expiry", "2m")
+
+        status = await update.message.reply_text(
+            "⏳ NASIRFX wuxuu hubinayaa LIVE candles...\n"
+            "Fadlan sug."
         )
-
-
-# ==========================================
-# AUTOMATIC SCANNER LOOP
-# ==========================================
-
-async def automatic_scanner(context):
-    global AUTO_SCAN_RUNNING
-
-    AUTO_SCAN_RUNNING = True
-
-    logger.info("NASIRFX automatic scanner started.")
-
-    asset_list = get_automatic_assets()
-
-    position = 0
-
-    while AUTO_USERS:
-        user_ids = list(AUTO_USERS)
-
-        if not user_ids:
-            break
-
-        if SCANNING_LOCK.locked():
-            await asyncio.sleep(2)
-            continue
-
-        async with SCANNING_LOCK:
-
-            client = None
-
-            try:
-                client = await connect_client()
-
-                total_assets = len(asset_list)
-
-                batch = []
-
-                for _ in range(
-                    min(MAX_ASSETS_PER_CYCLE, total_assets)
-                ):
-                    if not asset_list:
-                        break
-
-                    batch.append(
-                        asset_list[position % total_assets]
-                    )
-
-                    position += 1
-
-                for asset_info in batch:
-
-                    if not AUTO_USERS:
-                        break
-
-                    await scan_one_asset(
-                        client,
-                        context,
-                        asset_info,
-                        user_ids
-                    )
-
-                    # Avoid overloading the API
-                    await asyncio.sleep(1)
-
-            except Exception as exc:
-                logger.exception(
-                    "Automatic scanner connection error: %s",
-                    exc
-                )
-
-            finally:
-                await disconnect_client(client)
-
-        if AUTO_USERS:
-            await asyncio.sleep(AUTO_SCAN_INTERVAL)
-
-    AUTO_SCAN_RUNNING = False
-
-    logger.info("NASIRFX automatic scanner stopped.")
-
-
-# ==========================================
-# START / STOP SCANNER TASK
-# ==========================================
-
-async def ensure_scanner_running(application):
-    global AUTO_SCAN_TASK
-
-    if AUTO_USERS and (
-        AUTO_SCAN_TASK is None
-        or AUTO_SCAN_TASK.done()
-    ):
-        AUTO_SCAN_TASK = asyncio.create_task(
-            automatic_scanner(application)
-        )
-
-
-async def scanner_startup(application):
-    logger.info("NASIRFX scanner startup complete.")
-
-
-async def scanner_shutdown(application):
-    global AUTO_SCAN_TASK
-
-    AUTO_USERS.clear()
-
-    if AUTO_SCAN_TASK and not AUTO_SCAN_TASK.done():
-        AUTO_SCAN_TASK.cancel()
 
         try:
-            await AUTO_SCAN_TASK
-        except asyncio.CancelledError:
-            pass
-
-
-# ==========================================
-# AUTOMATIC START HANDLER PATCH
-# ==========================================
-
-async def start_automatic(update, context):
-    user_id = update.effective_user.id
-
-    AUTO_USERS.add(user_id)
-
-    await ensure_scanner_running(
-        context.application
-    )
-
-    await update.message.reply_text(
-        """
-<escape>🤖 NASIRFX AUTOMATIC SCANNER STARTED</escape>
-
-📡 Scanning enabled.
-
-Markets:
-• Forex
-• Forex OTC
-• Stocks
-• Stocks OTC
-
-Signal rules:
-• EMA 9 / 21 / 50
-• RSI 14
-• Candle direction
-• Previous candle
-• Higher timeframe
-• Minimum 4 confirmations
-
-🚫 Auto-trading: OFF
-🚫 Backtesting: OFF
-📡 Signal-only
-"""
-    )
-
-
-# ==========================================
-# RENDER HEALTH SERVER
-# ==========================================
-
-class HealthHandler(BaseHTTPRequestHandler):
-
-    def do_GET(self):
-        if self.path in ("/", "/health"):
-
-            body = (
-                b"NASIRFX AI SIGNAL is running"
+            result, error = await get_signal(
+                client, asset, timeframe
             )
 
-            self.send_response(200)
+            if error:
+                await status.edit_text(
+                    "⚠️ CANDLE DATA UNAVAILABLE\n\n"
+                    f"{error}\n\n"
+                    "Signal lama samayn. Sug xog sax ah."
+                )
+                return
 
-            self.send_header(
-                "Content-Type",
-                "text/plain"
+            signal = result["signal"]
+
+            if signal == "HIGHER":
+                direction = "🟢 HIGHER"
+            elif signal == "LOWER":
+                direction = "🔴 LOWER"
+            else:
+                direction = "⏳ WAIT"
+
+            score = result["score"]
+            confirmation = round(score / 8 * 100)
+
+            message = (
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "       NASIRFX AI SIGNAL\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"💱 Asset: {asset}\n"
+                f"📊 Timeframe: {timeframe}\n"
+                f"⌛ Expiry: {expiry}\n\n"
+                f"🎯 SIGNAL: {direction}\n"
+                f"💰 Analysis price: {result['price']}\n"
+                f"📈 RSI: {result['rsi']:.2f}\n"
+                f"📊 EMA 9: {result['ema9']:.6f}\n"
+                f"📊 EMA 21: {result['ema21']:.6f}\n"
+                f"📊 EMA 50: {result['ema50']:.6f}\n"
+                f"📉 MACD: {result['macd']:.6f}\n"
+                f"🧠 Confirmation: {score}/8 ({confirmation}%)\n\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "       ULTRA CONFIRMATION\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🟢 HIGHER checks: {result['higher_score']}/8\n"
+                f"🔴 LOWER checks: {result['lower_score']}/8\n\n"
+                "🚫 Auto-trading: OFF\n"
+                "🚫 Backtesting: OFF\n"
+                "📡 Signal-only\n\n"
+                "⚠️ Signals are analysis, not guaranteed outcomes."
             )
 
-            self.send_header(
-                "Content-Length",
-                str(len(body))
+            await status.edit_text(message)
+
+        except Exception as exc:
+            log.exception("Signal request failed")
+            await status.edit_text(
+                "⚠️ LIVE DATA ERROR\n\n"
+                f"{type(exc).__name__}: {str(exc)[:500]}\n\n"
+                "Signal lama soo saarin."
             )
-
-            self.end_headers()
-
-            self.wfile.write(body)
-
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def log_message(self, format, *args):
         return
 
-
-def start_health_server():
-    server = HTTPServer(
-        ("0.0.0.0", PORT),
-        HealthHandler
+    await update.message.reply_text(
+        "Fadlan isticmaal menu-ga hoose.",
+        reply_markup=main_menu(),
     )
 
-    logger.info(
-        "Health server running on port %s",
-        PORT
+
+# ==========================================================
+# APPLICATION STARTUP
+# ==========================================================
+
+async def run_bot():
+    if not BOT_TOKEN:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN environment variable waa maqan.")
+
+    if not POCKETOPTION_SSID:
+        raise RuntimeError("POCKETOPTION_SSID environment variable waa maqan.")
+
+    client = AsyncPocketOptionClient(
+        POCKETOPTION_SSID,
+        is_demo=IS_DEMO,
+        enable_logging=True,
     )
 
-    server.serve_forever()
+    log.info("Connecting to Pocket Option...")
+    connected = await client.connect()
 
+    if not connected:
+        raise RuntimeError("Pocket Option connection waa fashilantay.")
 
-# ==========================================
-# RENDER HEALTH THREAD
-# ==========================================
+    log.info("Pocket Option connected.")
 
-def run_health_server():
-    thread = Thread(
-        target=start_health_server,
-        daemon=True
-    )
-
-    thread.start()
-
-
-# ==========================================
-# POST INIT
-# ==========================================
-
-async def post_init(application):
-    logger.info("NASIRFX Telegram bot initialized.")
-
-    await scanner_startup(application)
-
-
-# ==========================================
-# POST SHUTDOWN
-# ==========================================
-
-async def post_shutdown(application):
-    await scanner_shutdown(application)
-
-
-# ==========================================
-# MAIN APPLICATION
-# ==========================================
-
-def main():
-
-    if not TELEGRAM_BOT_TOKEN:
-        raise RuntimeError(
-            "TELEGRAM_BOT_TOKEN missing in Render Environment."
-        )
-
-    if not POCKET_OPTION_SSID:
-        raise RuntimeError(
-            "POCKET_OPTION_SSID missing in Render Environment."
-        )
-
-    run_health_server()
-
-    application = (
+    app = (
         Application.builder()
-        .token(TELEGRAM_BOT_TOKEN)
-        .post_init(post_init)
-        .post_shutdown(post_shutdown)
+        .token(BOT_TOKEN)
         .build()
     )
 
-    application.add_handler(
-        CommandHandler("start", start_command)
-    )
+    app.bot_data["pocket_client"] = client
 
-    application.add_handler(
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            message_handler
+            handle_message,
         )
     )
 
-    logger.info(
-        "Starting %s",
-        BOT_NAME
-    )
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
 
-    application.run_polling(
-        drop_pending_updates=True
-    )
+    log.info("NASIRFX AI SIGNAL is running.")
 
+    try:
+        await asyncio.Event().wait()
+    finally:
+        log.info("Stopping NASIRFX...")
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
+        await client.disconnect()
 
-# ==========================================
-# START BOT
-# ==========================================
 
 if __name__ == "__main__":
-    main()
-            
+    try:
+        asyncio.run(run_bot())
+    except KeyboardInterrupt:
+        log.info("Bot stopped.")
+    except Exception:
+        log.exception("NASIRFX startup failed.")
+        raise
