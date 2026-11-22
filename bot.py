@@ -488,6 +488,7 @@ async def call_candle_method(
                 (asset_code, timeframe_seconds, count),
                 {}
             )
+        ]
 # ==========================================
 # CANDLE NORMALIZATION — FIXED
 # ==========================================
