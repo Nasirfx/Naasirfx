@@ -487,49 +487,147 @@ async def call_candle_method(
             (
                 (asset_code, timeframe_seconds, count),
                 {}
+# ==========================================
+# CANDLE NORMALIZATION — FIXED
+# ==========================================
+
+def normalize_candles(raw_data):
+    if raw_data is None:
+        return None
+
+    try:
+        if isinstance(raw_data, pd.DataFrame):
+            df = raw_data.copy()
+
+            if df.index.name in ("timestamp", "time", "datetime"):
+                df = df.reset_index()
+
+        else:
+            rows = []
+
+            for candle in raw_data:
+                if isinstance(candle, dict):
+                    rows.append(candle)
+                else:
+                    rows.append({
+                        "open": getattr(candle, "open", None),
+                        "high": getattr(candle, "high", None),
+                        "low": getattr(candle, "low", None),
+                        "close": getattr(candle, "close", None),
+                        "volume": getattr(candle, "volume", 0),
+                        "time": getattr(
+                            candle,
+                            "timestamp",
+                            getattr(candle, "time", None)
+                        )
+                    })
+
+            df = pd.DataFrame(rows)
+
+        if df.empty:
+            return None
+
+        df.columns = [str(c).lower() for c in df.columns]
+
+        aliases = {
+            "o": "open",
+            "h": "high",
+            "l": "low",
+            "c": "close",
+            "price": "close",
+            "timestamp": "time",
+            "datetime": "time",
+            "at": "time",
+            "from": "time",
+            "v": "volume",
+        }
+
+        df = df.rename(columns=aliases)
+
+        required = ["open", "high", "low", "close"]
+
+        if not all(c in df.columns for c in required):
+            return None
+
+        for col in required:
+            df[col] = pd.to_numeric(
+                df[col], errors="coerce"
+            )
+
+        df = df.dropna(subset=required)
+
+        if "time" in df.columns:
+            df["time"] = pd.to_datetime(
+                df["time"],
+                utc=True,
+                errors="coerce",
+                unit="s"
+                if pd.api.types.is_numeric_dtype(df["time"])
+                else None
+            )
+
+            df = df.dropna(subset=["time"])
+            df = df.sort_values("time")
+
+        return df.reset_index(drop=True)
+
+    except Exception as exc:
+        logger.exception("Candle normalization error: %s", exc)
+        return None
+
+
+# ==========================================
+# OFFICIAL POCKET OPTION CANDLE REQUEST
+# ==========================================
+
+async def call_candle_method(
+    client,
+    asset_code,
+    timeframe_seconds,
+    count
+):
+    try:
+        candles = await asyncio.wait_for(
+            client.get_candles(
+                asset=asset_code,
+                timeframe=timeframe_seconds,
+                count=count
             ),
-            (
-                (),
-                {
-                    "asset": asset_code,
-                    "timeframe": timeframe_seconds,
-                    "count": count,
-                }
-            ),
-            (
-                (),
-                {
-                    "asset": asset_code,
-                    "period": timeframe_seconds,
-                    "limit": count,
-                }
-            ),
-        ]
+            timeout=CANDLE_TIMEOUT
+        )
 
-        for args, kwargs in attempts:
-            try:
-                result = method(*args, **kwargs)
+        df = normalize_candles(candles)
 
-                if inspect.isawaitable(result):
-                    result = await asyncio.wait_for(
-                        result,
-                        timeout=CANDLE_TIMEOUT
-                    )
+        if df is None:
+            logger.warning(
+                "Invalid candle format: %s",
+                asset_code
+            )
+            return None
 
-                df = normalize_candles(result)
+        if len(df) < MINIMUM_CANDLES:
+            logger.warning(
+                "%s: only %s candles received",
+                asset_code,
+                len(df)
+            )
+            return None
 
-                if df is not None and len(df) >= MINIMUM_CANDLES:
-                    return df
+        logger.info(
+            "LIVE candles received: %s | %s candles",
+            asset_code,
+            len(df)
+        )
 
-            except Exception as exc:
-                logger.debug(
-                    "%s failed for %s: %s",
-                    method_name,
-                    asset_code,
-                    exc
-                )
+        return df
 
-    return None
+    except Exception as exc:
+        logger.warning(
+            "Candle request failed: %s | %s",
+            asset_code,
+            exc
+        )
+        return None
 
 
 # ==========================================
@@ -542,40 +640,21 @@ async def get_candles(
     timeframe_seconds,
     count=CANDLE_COUNT
 ):
-    variants = await discover_asset_variants_by_id(
+    df = await call_candle_method(
         client,
-        asset_code
+        asset_code,
+        timeframe_seconds,
+        count
     )
 
-    for symbol in variants:
-        df = await call_candle_method(
-            client,
-            symbol,
-            timeframe_seconds,
-            count
+    if df is None:
+        logger.error(
+            "NO LIVE CANDLE DATA: %s",
+            asset_code
         )
+        return None
 
-        if df is None:
-            continue
-
-        if not candle_is_current_or_recent(
-            df,
-            timeframe_seconds
-        ):
-            logger.warning(
-                "Stale candle data: %s",
-                symbol
-            )
-            continue
-
-        return df
-
-    logger.warning(
-        "No usable candles found for %s",
-        asset_code
-    )
-
-    return None
+    return df
     
 # ==========================================
 # PART 3 — TECHNICAL ANALYSIS ENGINE
